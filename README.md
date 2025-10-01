@@ -1,1 +1,1 @@
-# Full-Graph_Wildfire_Prediction_Using_Graph_Machine_Learning
+### Full-Graph Wildfire Prediction
