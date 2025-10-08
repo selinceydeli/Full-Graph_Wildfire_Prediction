@@ -7,4 +7,5 @@ torch
 scikit-learn
 matplotlib 
 seaborn
-
+ipykernel
+meteostat
