@@ -11,12 +11,12 @@ def main():
 
     # Define the parameters
     splits = [0.3, 0.2, 0.5] # TODO: try [0.6, 0.2, 0.2] split as well (common for machine learning) - I am curious about its performance on graphs
-    pred_horizen = 1
+    pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
     n_timestamps = timeseries_data.shape[1]
 
-    print(f"split: {splits}, pred_horizen: {pred_horizen}, obs_window: {obs_window}")
+    print(f"split: {splits}, pred_horizon: {pred_horizon}, obs_window: {obs_window}")
     print(f"The dataset contains {n_timestamps} measurements over {n_stations} stations.")
 
     # shapes: timeseries_data -> (N_nodes, T_time)
@@ -29,14 +29,14 @@ def main():
     L_trn = idx_trn
     L_val = idx_val - idx_trn
     L_tst = T - idx_val
-    need = obs_window + pred_horizen
+    need = obs_window + pred_horizon
     assert all(L >= need for L in [L_trn, L_val, L_tst]), \
         f"Each split must have at least {need} time steps."
 
     dataset = create_forecasting_dataset(
         timeseries_data,
         splits=splits,
-        pred_horizen=pred_horizen,
+        pred_horizon=pred_horizon,
         obs_window=obs_window,
         in_sample_mean=False
     )

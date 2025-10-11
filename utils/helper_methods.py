@@ -7,10 +7,10 @@ from datetime import datetime
 
 # --- Helper method for dataset creation ---
 def create_forecasting_dataset(graph_signals,
-                                splits: list,
-                                pred_horizen: int,
-                                obs_window: int,
-                                in_sample_mean: bool):
+                               splits: list,
+                               pred_horizon: int,
+                               obs_window: int,
+                               in_sample_mean: bool):
     
     T = graph_signals.shape[1]
     max_idx_trn = int(T * splits[0])
@@ -35,7 +35,7 @@ def create_forecasting_dataset(graph_signals,
 
         for j in range(len(split_idx[i])):
             try:        
-                targets.append(split_data[:, list(range(j+obs_window,j+obs_window+pred_horizen))])
+                targets.append(split_data[:, list(range(j + obs_window, j + obs_window + pred_horizon))])
                 data_points.append(split_data[:, list(range(j,j+obs_window))])
             except:
                 break
