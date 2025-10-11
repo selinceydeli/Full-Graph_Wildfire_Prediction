@@ -1,9 +1,14 @@
 import torch
 import numpy as np
+from pathlib import Path
 
 from model.parametric_gtcnn import ParametricGTCNN
-from utils.train_utils import train_parametric_gtcnn
+from model.disjoint_st_baseline import DisjointSTModel
+from utils.train_utils import train_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
+
+MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline"]
+SELECTED_MODEL = MODEL_NAMES[0]
 
 def main():
     # Load the dataset 
@@ -55,16 +60,29 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Define the model
-    param_GTCNN_model = ParametricGTCNN(
-        S_spatial=A, 
-        T=obs_window, 
-        F_in=1,
-        hidden_dims=(64,64), 
-        K=2, 
-        pool="mean",
-        init_s=(0.0, 1.0, 1.0, 0.0),      # start as Cartesian; it can learn toward Strong/Kronecker
-        device=device
-    ).to(device)
+    if SELECTED_MODEL == "parametric_gtcnn":
+        model = ParametricGTCNN(
+            S_spatial=A, 
+            T=obs_window, 
+            F_in=1,
+            hidden_dims=(64,64), 
+            K=2, 
+            pool="mean",
+            init_s=(0.0, 1.0, 1.0, 0.0),      # start as Cartesian; it can learn toward Strong/Kronecker
+            device=device
+        ).to(device)
+
+    elif SELECTED_MODEL == "disjoint_st_baseline":
+        model = DisjointSTModel(
+            S_spatial=A,
+            T=obs_window,
+            F_in=1,
+            spatial_hidden=(64, 64),
+            temporal_hidden=64,
+            K=2,
+            order="ST",          # or "TS" to flip the processing order
+            device=device
+        ).to(device)
 
     # Prepare data to shapes the trainer expects
     trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32).unsqueeze(1)  # [B,1,N,T]
@@ -73,8 +91,8 @@ def main():
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
 
     # Train with L1 on s_* (γ>0), using your revised loop
-    gamma = 1e-4
-    optimizer = torch.optim.Adam(param_GTCNN_model.parameters(), lr=1e-3, weight_decay=1e-5)
+    gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
 
     # Configure training parameters
@@ -82,8 +100,9 @@ def main():
     batch_size = 64
 
     # Training loop
-    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_parametric_gtcnn(
-        param_GTCNN_model,
+    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
+        model,
+        model_name = SELECTED_MODEL,
         training_data=trn_X.to(device),
         validation_data=val_X.to(device),
         single_step_trn_labels=trn_y.to(device),
@@ -92,14 +111,14 @@ def main():
         loss_criterion=torch.nn.MSELoss(),
         optimizer=optimizer, scheduler=scheduler,
         val_metric_criterion=None,
-        log_dir="./gtcnn_param",
+        log_dir = f"./runs/{SELECTED_MODEL}",
         not_learning_limit=15,
         gamma=gamma 
     )
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
-            title="Parametric GTCNN — train/val loss", model_name="parametric_GTCNN", save_path=None)
+            title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
 
 
 if __name__ == "__main__":

@@ -2,23 +2,9 @@ import numpy as np
 import scipy.sparse as sp
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-def scipy_to_torch_sparse(A: sp.spmatrix, device=None) -> torch.Tensor:
-    A = A.tocoo()
-    idx = torch.tensor(np.vstack([A.row, A.col]), dtype=torch.long, device=device)
-    val = torch.tensor(A.data, dtype=torch.float32, device=device)
-    return torch.sparse_coo_tensor(idx, val, torch.Size(A.shape), device=device).coalesce()
-
-def torch_sparse_sym_norm(A: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
-    """Return D^{-1/2} A D^{-1/2} for a coalesced sparse COO tensor."""
-    A = A.coalesce()
-    n = A.size(0)
-    deg = torch.sparse.sum(A, dim=1).to_dense().clamp_min(eps)              
-    row, col = A.indices()
-    scale = (deg[row] * deg[col]).sqrt()
-    vals = A.values() / scale
-    return torch.sparse_coo_tensor(A.indices(), vals, (n, n), device=A.device).coalesce()
+from utils.helper_methods import scipy_to_torch_sparse, torch_sparse_sym_norm, to_csr
+from model.polynomial_gconv import PowerGConvDyn
 
 def time_chain_adjacency(T: int, weight: float = 1.0) -> sp.csr_matrix:
     rows = np.arange(T-1); cols = rows + 1
@@ -26,35 +12,6 @@ def time_chain_adjacency(T: int, weight: float = 1.0) -> sp.csr_matrix:
     A = sp.coo_matrix((data, (rows, cols)), shape=(T, T))
     A = A + A.T
     return A.tocsr()
-
-def to_csr(M) -> sp.csr_matrix:
-    if sp.issparse(M):
-        A = M.tocsr().astype(float)
-    else:
-        A = sp.csr_matrix(np.asarray(M, dtype=float))
-    A = (A + A.T) * 0.5
-    A.setdiag(0); A.eliminate_zeros()
-    return A
-
-
-class PowerGConvDyn(nn.Module):
-    """
-    Dynamic power-series graph convolution (uses current adjacency matrix (A) in each forward run)
-    """
-    def __init__(self, in_channels: int, out_channels: int, K: int):
-        super().__init__()
-        self.K = int(K)
-        self.lin = nn.Linear((self.K + 1) * in_channels, out_channels)
-
-    def forward(self, X: torch.Tensor, A_hat: torch.Tensor) -> torch.Tensor:
-        Zs = [X]
-        Z = X
-        for _ in range(self.K):
-            Z = torch.sparse.mm(A_hat, Z)
-            Zs.append(Z)
-        H = torch.cat(Zs, dim=1)
-        return self.lin(H)
-
 
 class ParametricGTCNN(nn.Module):
     """
@@ -84,10 +41,15 @@ class ParametricGTCNN(nn.Module):
         I_T = sp.eye(self.T, format='csr'); I_N = sp.eye(N, format='csr')
 
         # Define Kronecker blocks
-        self.K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr'), device=self.device)  # I⊗I
-        self.K01 = scipy_to_torch_sparse(sp.kron(I_T, S,   format='csr'), device=self.device)  # I⊗S
-        self.K10 = scipy_to_torch_sparse(sp.kron(S_T, I_N, format='csr'), device=self.device)  # S_T⊗I
-        self.K11 = scipy_to_torch_sparse(sp.kron(S_T, S,   format='csr'), device=self.device)  # S_T⊗S
+        K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr'))           # I ⊗ I
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S,   format='csr'))           # I ⊗ S
+        K10 = scipy_to_torch_sparse(sp.kron(S_T, I_N, format='csr'))           # S_T ⊗ I
+        K11 = scipy_to_torch_sparse(sp.kron(S_T, S,   format='csr'))           # S_T ⊗ S
+
+        self.register_buffer("K00", K00.coalesce())
+        self.register_buffer("K01", K01.coalesce())
+        self.register_buffer("K10", K10.coalesce())
+        self.register_buffer("K11", K11.coalesce())
 
         # Learnable scalars (names start with s_ for L1 reg) for making the product graph parametric
         s00, s01, s10, s11 = init_s
@@ -102,7 +64,6 @@ class ParametricGTCNN(nn.Module):
         self.act = nn.ReLU()
         self.dropout = nn.Dropout(p=0.1)
         self.head = nn.Linear(dims[-1], 1)   # to N outputs after temporal pooling
-
 
     def _current_A_hat(self) -> torch.Tensor:
         """

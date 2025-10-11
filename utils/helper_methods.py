@@ -4,6 +4,33 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sp
 from datetime import datetime
+import torch
+
+# --- Helper methods for sparse tensor conversion ---
+def scipy_to_torch_sparse(A: sp.spmatrix, device=None) -> torch.Tensor:
+    A = A.tocoo()
+    idx = torch.tensor(np.vstack([A.row, A.col]), dtype=torch.long, device=device)
+    val = torch.tensor(A.data, dtype=torch.float32, device=device)
+    return torch.sparse_coo_tensor(idx, val, torch.Size(A.shape), device=device).coalesce()
+
+def torch_sparse_sym_norm(A: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """Return D^{-1/2} A D^{-1/2} for a coalesced sparse COO tensor."""
+    A = A.coalesce()
+    n = A.size(0)
+    deg = torch.sparse.sum(A, dim=1).to_dense().clamp_min(eps)              
+    row, col = A.indices()
+    scale = (deg[row] * deg[col]).sqrt()
+    vals = A.values() / scale
+    return torch.sparse_coo_tensor(A.indices(), vals, (n, n), device=A.device).coalesce()
+
+def to_csr(M) -> sp.csr_matrix:
+    if sp.issparse(M):
+        A = M.tocsr().astype(float)
+    else:
+        A = sp.csr_matrix(np.asarray(M, dtype=float))
+    A = (A + A.T) * 0.5
+    A.setdiag(0); A.eliminate_zeros()
+    return A
 
 # --- Helper method for dataset creation ---
 def create_forecasting_dataset(graph_signals,

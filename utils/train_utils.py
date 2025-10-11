@@ -64,7 +64,7 @@ def compute_loss_in_chunks(model: torch.nn.Module,
 
 
 # Main training loop 
-def train_parametric_gtcnn(model, training_data, validation_data, single_step_trn_labels, single_step_val_labels,
+def train_model(model, model_name, training_data, validation_data, single_step_trn_labels, single_step_val_labels,
                            num_epochs, batch_size,
                            loss_criterion, optimizer, scheduler,
                            val_metric_criterion,
@@ -157,7 +157,7 @@ def train_parametric_gtcnn(model, training_data, validation_data, single_step_tr
             not_learning_count = 0
             print(f"\n\t\t\t\tNew best val_metric: {val_metric}. Saving model...\n")
             torch.save({'epoch': epoch, 'model_state_dict': model.state_dict()},
-                       log_dir + "/best_one_step_gtcnn.pth")
+                       log_dir + f"/best_one_step_{model_name}.pth")
             best_val_metric = val_metric
         else:
             not_learning_count += 1
@@ -165,7 +165,7 @@ def train_parametric_gtcnn(model, training_data, validation_data, single_step_tr
         if not_learning_count > not_learning_limit:
             print("Training is INTERRUPTED.")
             tensorboard.close()
-            checkpoint_best = torch.load(log_dir + "/best_one_step_gtcnn.pth")
+            checkpoint_best = torch.load(log_dir + f"/best_one_step_{model_name}.pth")
             model.load_state_dict(checkpoint_best['model_state_dict'])
             epoch_best = checkpoint_best['epoch']
             model.eval()
@@ -174,7 +174,7 @@ def train_parametric_gtcnn(model, training_data, validation_data, single_step_tr
 
     print("Training is finished.")
     tensorboard.close()
-    checkpoint_best = torch.load(log_dir + "/best_one_step_gtcnn.pth")
+    checkpoint_best = torch.load(log_dir + f"/best_one_step_{model_name}.pth")
     model.load_state_dict(checkpoint_best['model_state_dict'])
     epoch_best = checkpoint_best['epoch']
     model.eval()
