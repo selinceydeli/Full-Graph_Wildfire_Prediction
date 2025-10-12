@@ -4,11 +4,12 @@ from pathlib import Path
 
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
+from model.vanilla_gcnn import VanillaGCN
 from utils.train_utils import train_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
-MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline"]
-SELECTED_MODEL = MODEL_NAMES[0]
+MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
+SELECTED_MODEL = MODEL_NAMES[2] # vanilla gcnn
 
 def main():
     # Load the dataset 
@@ -83,11 +84,21 @@ def main():
             order="ST",          # or "TS" to flip the processing order
             device=device
         ).to(device)
+    
+    elif SELECTED_MODEL == "vanilla_gcnn":
+        model = VanillaGCN(
+            S_spatial=A,
+            in_channels=4,
+            hidden_channels=24,
+            out_channels=1,
+            num_layers=10,
+            dropout=0.1
+        ).to(device)
 
-    # Prepare data to shapes the trainer expects
-    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32).unsqueeze(1)  # [B,1,N,T]
-    val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32).unsqueeze(1)
-    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)   # [B,N]
+    # Prepare the data for training (model-specific reshaping is done in train_model)
+    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)               # [B,N,T]
+    val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
+    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)    # [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
 
     # Train with L1 on s_* (γ>0), using your revised loop
