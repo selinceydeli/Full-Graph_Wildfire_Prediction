@@ -1,4 +1,5 @@
-pandas 
+scipy
+pandas
 numpy 
 geopandas 
 shapely
