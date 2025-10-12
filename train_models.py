@@ -5,7 +5,7 @@ from pathlib import Path
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model
+from utils.train_utils import train_model, compute_loss_in_chunks
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
@@ -98,8 +98,10 @@ def main():
     # Prepare the data for training (model-specific reshaping is done in train_model)
     trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)               # [B,N,T]
     val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
+    tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
     trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)    # [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
+    tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32) 
 
     # Train with L1 on s_* (γ>0), using your revised loop
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
@@ -130,7 +132,15 @@ def main():
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
+    
+    # Evaluate the best model on the test set
 
+    # Model-specific reshaping of test data
+    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
+        tst_X = tst_X.unsqueeze(1).flatten(2, 3)
+        
+    test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
+    print(f"Test loss: {test_loss}")
 
 if __name__ == "__main__":
     main()
