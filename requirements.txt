@@ -8,4 +8,4 @@ torch
 scikit-learn
 matplotlib 
 seaborn
-
+torch_geometric
