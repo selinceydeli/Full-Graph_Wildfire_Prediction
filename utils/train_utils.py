@@ -15,6 +15,7 @@ def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
         return torch.zeros((), device=dev)
     return reg
 
+
 def perform_chunk_predictions(model: torch.nn.Module,
                               data: torch.Tensor,
                               chunk_size: int = 300) -> torch.Tensor:
@@ -35,6 +36,7 @@ def perform_chunk_predictions(model: torch.nn.Module,
             preds.append(pred)
 
     return torch.cat(preds, dim=0)
+
 
 def compute_loss_in_chunks(model: torch.nn.Module,
                            data: torch.Tensor,
@@ -77,15 +79,18 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     tensorboard = SummaryWriter(log_dir=log_dir)
     trn_loss_per_epoch, val_loss_per_epoch = [], []
 
-    # trainer expects [B, F, N, T]; it flattens dims 2..3 before calling model
-    training_data   = training_data.flatten(2, 3)
-    validation_data = validation_data.flatten(2, 3)
+    # Model-specific reshaping of training/validation data
+    if model_name in ["parametric_gtcnn", "disjoint_st_baseline"]:
+        # [B, N, T] -> [B,1,N,T] -> [B,1,N*T]
+        training_data = training_data.unsqueeze(1).flatten(2, 3)  
+        validation_data = validation_data.unsqueeze(1).flatten(2, 3)
+
     n_trn_samples = training_data.size()[0]
     n_batches_per_epoch = int(n_trn_samples / batch_size)
 
     best_val_metric = 10e10
     print(f"{n_batches_per_epoch} batches per epoch "
-          f"({n_trn_samples} trn samples in total | batch_size: {batch_size})")
+        f"({n_trn_samples} trn samples in total | batch_size: {batch_size})")
 
     not_learning_count = 0
     for epoch in range(num_epochs):
@@ -149,15 +154,15 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             tensorboard.add_scalar('l1_s_params', _l1_over_s_params(model).item(), epoch)
 
         print(f"Epoch {epoch}"
-              f"\n\t train-loss: {round(epoch_trn_loss, 3)} | valid-loss: {round(val_loss, 3)} "
-              f"\t| valid-metric: {val_metric} | lr: {optimizer.param_groups[0]['lr']}")
+            f"\n\t train-loss: {round(epoch_trn_loss, 3)} | valid-loss: {round(val_loss, 3)} "
+            f"\t| valid-metric: {val_metric} | lr: {optimizer.param_groups[0]['lr']}")
 
         # Early stopping bookkeeping
         if val_metric < best_val_metric:
             not_learning_count = 0
             print(f"\n\t\t\t\tNew best val_metric: {val_metric}. Saving model...\n")
             torch.save({'epoch': epoch, 'model_state_dict': model.state_dict()},
-                       log_dir + f"/best_one_step_{model_name}.pth")
+                    log_dir + f"/best_one_step_{model_name}.pth")
             best_val_metric = val_metric
         else:
             not_learning_count += 1
@@ -180,4 +185,3 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     model.eval()
     print(f"Best model was at epoch: {epoch_best}")
     return model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch
-

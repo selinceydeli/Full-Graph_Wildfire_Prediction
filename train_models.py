@@ -1,21 +1,21 @@
 import torch
 import numpy as np
-from pathlib import Path
 
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
-from utils.train_utils import train_model
+from model.vanilla_gcnn import VanillaGCN
+from utils.train_utils import train_model, compute_loss_in_chunks
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
-MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline"]
-SELECTED_MODEL = MODEL_NAMES[0]
+MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
+SELECTED_MODEL = MODEL_NAMES[0] # choose model here
 
 def main():
     # Load the dataset 
     timeseries_data = np.load(file='lab2_NOAA_dataset/NOA_109_data.npy')
 
     # Define the parameters
-    splits = [0.3, 0.2, 0.5] # TODO: try [0.6, 0.2, 0.2] split as well (common for machine learning) - I am curious about its performance on graphs
+    splits = [0.6, 0.2, 0.2]
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
@@ -83,12 +83,24 @@ def main():
             order="ST",          # or "TS" to flip the processing order
             device=device
         ).to(device)
+    
+    elif SELECTED_MODEL == "vanilla_gcnn":
+        model = VanillaGCN(
+            S_spatial=A,
+            in_channels=4,
+            hidden_channels=24,
+            out_channels=1,
+            num_layers=10,
+            dropout=0.1
+        ).to(device)
 
-    # Prepare data to shapes the trainer expects
-    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32).unsqueeze(1)  # [B,1,N,T]
-    val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32).unsqueeze(1)
-    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)   # [B,N]
+    # Prepare the data for training (model-specific reshaping is done in train_model)
+    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)               # [B,N,T]
+    val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
+    tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
+    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)    # [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
+    tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32) 
 
     # Train with L1 on s_* (γ>0), using your revised loop
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
@@ -119,6 +131,15 @@ def main():
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
+    
+    # Model-specific reshaping of test data
+    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
+        tst_X = tst_X.unsqueeze(1).flatten(2, 3)
+    # else: for vanilla gcnn, no change needed
+    
+    # Evaluate the best model on the test set
+    test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
+    print(f"Test loss: {test_loss}")
 
 
 if __name__ == "__main__":
