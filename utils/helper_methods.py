@@ -32,6 +32,19 @@ def to_csr(M) -> sp.csr_matrix:
     A.setdiag(0); A.eliminate_zeros()
     return A
 
+def torch_sparse_row_norm(A: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """
+    Row-normalize a (coalesced) torch sparse matrix: D^{-1} A (for directed time-chain representation for event-based model).
+    """
+    A = A.coalesce()
+    row, _ = A.indices()
+    deg = torch.zeros(A.size(0), device=A.device, dtype=A.dtype)
+    deg.index_add_(0, row, A.values())
+    inv_deg = 1.0 / torch.clamp(deg, min=eps)
+    new_vals = inv_deg[row] * A.values()
+    return torch.sparse_coo_tensor(A.indices(), new_vals, A.size(), device=A.device).coalesce()
+
+
 # --- Helper method for dataset creation ---
 def create_forecasting_dataset(graph_signals,
                                splits: list,

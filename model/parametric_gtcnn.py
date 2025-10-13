@@ -42,9 +42,9 @@ class ParametricGTCNN(nn.Module):
 
         # Define Kronecker blocks
         K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr'))           # I ⊗ I
-        K01 = scipy_to_torch_sparse(sp.kron(I_T, S,   format='csr'))           # I ⊗ S
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S, format='csr'))           # I ⊗ S
         K10 = scipy_to_torch_sparse(sp.kron(S_T, I_N, format='csr'))           # S_T ⊗ I
-        K11 = scipy_to_torch_sparse(sp.kron(S_T, S,   format='csr'))           # S_T ⊗ S
+        K11 = scipy_to_torch_sparse(sp.kron(S_T, S, format='csr'))           # S_T ⊗ S
 
         self.register_buffer("K00", K00.coalesce())
         self.register_buffer("K01", K01.coalesce())
