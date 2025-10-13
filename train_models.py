@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from pathlib import Path
 
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
@@ -9,14 +8,14 @@ from utils.train_utils import train_model, compute_loss_in_chunks
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
-SELECTED_MODEL = MODEL_NAMES[2] # vanilla gcnn
+SELECTED_MODEL = MODEL_NAMES[0] # choose model here
 
 def main():
     # Load the dataset 
     timeseries_data = np.load(file='lab2_NOAA_dataset/NOA_109_data.npy')
 
     # Define the parameters
-    splits = [0.3, 0.2, 0.5] # TODO: try [0.6, 0.2, 0.2] split as well (common for machine learning) - I am curious about its performance on graphs
+    splits = [0.6, 0.2, 0.2]
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
@@ -133,14 +132,15 @@ def main():
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
     
-    # Evaluate the best model on the test set
-
     # Model-specific reshaping of test data
     if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
         tst_X = tst_X.unsqueeze(1).flatten(2, 3)
-        
+    # else: for vanilla gcnn, no change needed
+    
+    # Evaluate the best model on the test set
     test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
     print(f"Test loss: {test_loss}")
+
 
 if __name__ == "__main__":
     main()
