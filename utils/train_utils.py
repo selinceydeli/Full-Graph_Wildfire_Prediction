@@ -1,3 +1,5 @@
+import time
+
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
@@ -76,6 +78,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     If gamma>0, trains with: J = MSE + gamma * ||s||_1, where s are model params named 's_*'.
     Validation uses plain MSE for fair model selection.
     """
+    start = time.time()
     tensorboard = SummaryWriter(log_dir=log_dir)
     trn_loss_per_epoch, val_loss_per_epoch = [], []
 
@@ -161,6 +164,8 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
         if val_metric < best_val_metric:
             not_learning_count = 0
             print(f"\n\t\t\t\tNew best val_metric: {val_metric}. Saving model...\n")
+            end = time.time()
+            print(f"Training took {end - start} seconds.")
             torch.save({'epoch': epoch, 'model_state_dict': model.state_dict()},
                     log_dir + f"/best_one_step_{model_name}.pth")
             best_val_metric = val_metric

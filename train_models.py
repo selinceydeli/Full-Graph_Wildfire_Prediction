@@ -1,3 +1,5 @@
+import time
+
 import torch
 import numpy as np
 
@@ -111,6 +113,7 @@ def main():
     num_epochs = 5
     batch_size = 64
 
+    start = time.time()
     # Training loop
     best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
         model,
@@ -127,6 +130,9 @@ def main():
         not_learning_limit=15,
         gamma=gamma 
     )
+
+    end = time.time()
+    print(f"Training took {end - start} seconds.")
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
