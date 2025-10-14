@@ -1,4 +1,5 @@
-pandas 
+scipy
+pandas
 numpy 
 geopandas 
 shapely
@@ -7,6 +8,7 @@ torch
 scikit-learn
 matplotlib 
 seaborn
+torch_geometric
 ipykernel
 meteostat
 fiona
