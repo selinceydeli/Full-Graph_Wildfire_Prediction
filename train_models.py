@@ -142,7 +142,7 @@ def main():
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
     
-    # TODO: Uncomment when training is OK
+    # TODO: Uncomment when training is OK - this is to evaluate on the best model
     # # Model-specific reshaping of test data
     # if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
     #     tst_X = tst_X.unsqueeze(1).flatten(2, 3)
