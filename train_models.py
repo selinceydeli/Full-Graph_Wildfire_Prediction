@@ -50,16 +50,17 @@ def main():
     )
 
     # Load the distance matrix
-    # dist_matrix = np.load(file='lab2_NOAA_dataset/NOA_109_original_adj.npy')
-    A = load_npz(file='data/adjacency_radius_4cells.npz')
-    # normalized_dist = dist_matrix / np.max(dist_matrix)
+    dist_matrix = np.load(file='data/distance_matrix.npy')
+    # A = load_npz(file='data/adjacency_radius_4cells.npz')
+    normalized_dist = dist_matrix / np.max(dist_matrix)
 
     # Create the kNN graph to be used as the spatial adjacency matrix
-    # n = normalized_dist.shape[0]
-    # sparsity = 0.9
-    # density = 1 - sparsity
-    # k = max(1, int(density * (n - 1)))        # ~90% sparsity -> ~10% density -> edges formed between ~10% of n-1 neighbors
-    # A = knn_graph(normalized_dist, k)
+    n = normalized_dist.shape[0]
+    sparsity = 0.9
+    density = 1 - sparsity
+    k = max(1, int(density * (n - 1)))        # ~90% sparsity -> ~10% density -> edges formed between ~10% of n-1 neighbors
+    A = knn_graph(normalized_dist, k)
+    print("Size of adjancency matrix", A.shape)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -113,7 +114,7 @@ def main():
 
     # Configure training parameters
     num_epochs = 5
-    batch_size = 64
+    batch_size = 8
 
     start = time.time()
     # Training loop

@@ -3,6 +3,7 @@ import time
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
+from tqdm import tqdm
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -96,12 +97,12 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
         f"({n_trn_samples} trn samples in total | batch_size: {batch_size})")
 
     not_learning_count = 0
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs)):
         permutation = torch.randperm(n_trn_samples)  # shuffle the training data
         batch_losses = []
 
         model.train()
-        for batch_idx in range(0, n_trn_samples, batch_size):
+        for batch_idx in tqdm(range(0, n_trn_samples, batch_size)):
             batch_indices = permutation[batch_idx:batch_idx + batch_size]
             batch_trn_data = training_data[batch_indices, :, :]
             batch_one_step_trn_labels = single_step_trn_labels[batch_indices]
