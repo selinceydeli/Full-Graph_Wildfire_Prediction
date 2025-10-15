@@ -7,7 +7,10 @@ pip install -r requirements.txt
 
 ## Training a Model
 
-1. **Select which model to train**
+0. Generate the adjacency matrices
+Run `prep_data.ipynb` notebook. The data is automatically saved under the `.data/` directory.
+
+2. **Select which model to train**
 Inside `train_models.py`, choose one of the predefined models:
 ```bash
 SELECTED_MODEL = MODEL_NAMES[0]
