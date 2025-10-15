@@ -1,9 +1,6 @@
 import time
-
 import torch
 import numpy as np
-from scipy.sparse import load_npz
-
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
@@ -11,14 +8,15 @@ from utils.train_utils import train_model, compute_loss_in_chunks
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
-SELECTED_MODEL = MODEL_NAMES[0] # choose model here
+SELECTED_MODEL = MODEL_NAMES[2] # choose model here
 
 def main():
     # Load the dataset 
-    # timeseries_data = np.load(file='lab2_NOAA_dataset/NOA_109_data.npy')
     timeseries_data = np.load(file='data/timeseries_data.npy')
+
     # Define the parameters
-    splits = [0.6, 0.2, 0.2]
+    # splits = [0.6, 0.2, 0.2]
+    splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
@@ -51,16 +49,14 @@ def main():
 
     # Load the distance matrix
     dist_matrix = np.load(file='data/distance_matrix.npy')
-    # A = load_npz(file='data/adjacency_radius_4cells.npz')
     normalized_dist = dist_matrix / np.max(dist_matrix)
 
     # Create the kNN graph to be used as the spatial adjacency matrix
-    n = normalized_dist.shape[0]
-    sparsity = 0.9
-    density = 1 - sparsity
-    k = max(1, int(density * (n - 1)))        # ~90% sparsity -> ~10% density -> edges formed between ~10% of n-1 neighbors
+    k = 4 
     A = knn_graph(normalized_dist, k)
-    print("Size of adjancency matrix", A.shape)
+    n = A.shape[0]
+    sparsity = 1 - (A.nnz / (n * n)) 
+    print(f"Graph sparsity: {sparsity:.4f}") # k = 4 results in sparsity 0.9996
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -114,9 +110,9 @@ def main():
 
     # Configure training parameters
     num_epochs = 5
-    batch_size = 8
+    batch_size = 16 # we do not want too large batches
 
-    start = time.time()
+    training_start = time.time()
     # Training loop
     best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
         model,
@@ -134,21 +130,24 @@ def main():
         gamma=gamma 
     )
 
-    end = time.time()
-    print(f"Training took {end - start} seconds.")
+    training_end = time.time()
+    print(f"Training took {training_end - training_start} seconds.")
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
     
-    # Model-specific reshaping of test data
-    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
-        tst_X = tst_X.unsqueeze(1).flatten(2, 3)
-    # else: for vanilla gcnn, no change needed
-    
-    # Evaluate the best model on the test set
-    test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
-    print(f"Test loss: {test_loss}")
+    # TODO: Uncomment when training is OK
+    # # Model-specific reshaping of test data
+    # if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
+    #     tst_X = tst_X.unsqueeze(1).flatten(2, 3)
+    # # else: for vanilla gcnn, no reshaping needed
+    # test_start = time.time()
+    # # Evaluate the best model on the test set
+    # test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
+    # test_end = time.time()
+    # print(f"Testing took {test_end - test_start} seconds.")
+    # print(f"Test loss: {test_loss}")
 
 
 if __name__ == "__main__":
