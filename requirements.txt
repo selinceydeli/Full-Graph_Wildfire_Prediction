@@ -9,3 +9,6 @@ scikit-learn
 matplotlib 
 seaborn
 torch_geometric
+ipykernel
+meteostat
+fiona
