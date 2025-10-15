@@ -52,11 +52,16 @@ def main():
     normalized_dist = dist_matrix / np.max(dist_matrix)
 
     # Create the kNN graph to be used as the spatial adjacency matrix
+    # k is staticly set to 4 (to capture south-north-east-west neighbors)
     k = 4 
     A = knn_graph(normalized_dist, k)
     n = A.shape[0]
     sparsity = 1 - (A.nnz / (n * n)) 
     print(f"Graph sparsity: {sparsity:.4f}") # k = 4 results in sparsity 0.9996
+
+    # sanity check
+    # verify node order matches our time series rows
+    assert A.shape[0] == timeseries_data.shape[0]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
