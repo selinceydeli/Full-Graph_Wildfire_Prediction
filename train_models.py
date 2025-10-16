@@ -6,7 +6,8 @@ import scipy.sparse as sp
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model, compute_loss_in_chunks, evaluate_model
+from utils.train_utils import train_model
+from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
@@ -17,8 +18,8 @@ def main():
     timeseries_data = np.load(file='data/timeseries_data.npy')
 
     # Define the parameters
-    # splits = [0.6, 0.2, 0.2]
-    splits = [0.05, 0.05, 0.9] # for quick testing
+    splits = [0.6, 0.2, 0.2]
+    # splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
@@ -179,12 +180,6 @@ def main():
     print("Test set metrics:")
     for key, value in metrics.items():
         print(f"  {key}: {value}")
-    
-    confusion_mat = metrics.get('confusion_matrix')
-    if confusion_mat is not None:
-        print("Confusion Matrix:")
-        print(confusion_mat)
-        
 
 
 if __name__ == "__main__":
