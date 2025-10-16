@@ -2,7 +2,7 @@ import time
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
-from sklearn.metrics import precision_recall_fscore_support, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, f1_score, confusion_matrix
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -205,26 +205,36 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     print(f"Best model was at epoch: {epoch_best}")
     return model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch
 
-def evaluate_model_on_test_set(model: torch.nn.Module,
-                               data: torch.Tensor,
-                               labels: torch.Tensor,
-                               apply_sigmoid: bool = False,
-                               chunk_size: int = 300) -> dict:
-            
+def evaluate_model(model: torch.nn.Module,
+                   data: torch.Tensor,
+                   labels: torch.Tensor,
+                   loss_criterion: torch.nn.BCEWithLogitsLoss,
+                   apply_sigmoid: bool = True,
+                   chunk_size: int = 300) -> dict:
+
+    print("Computing test metrics...")
+    test_loss = compute_loss_in_chunks(model, data, labels, loss_criterion)
     preds = perform_chunk_predictions(model, data, chunk_size)
     
+    # Binarize predictions and labels for classification metrics
     threshold = 0.5
     if apply_sigmoid:
         preds = torch.sigmoid(preds)
+    preds_bin = (preds >= threshold).int()
+    labels_bin = (labels >= threshold).int()
 
-    preds_bin = (preds >= threshold).astype(int)
-    labels_bin = (labels >= threshold).astype(int)   # choose a domain label threshold if needed
+    # Convert to NumPy arrays for sklearn
+    preds_bin_np = preds_bin.cpu().numpy().flatten()
+    labels_bin_np = labels_bin.cpu().numpy().flatten()
 
-    f1 = f1_score(labels_bin, preds_bin, zero_division=0)
-    precision, recall, f1_per_class, _ = precision_recall_fscore_support(labels_bin, preds_bin, average=None, zero_division=0)
-    cm = confusion_matrix(labels_bin, preds_bin, labels=[0,1])
+    accuracy = accuracy_score(labels_bin_np, preds_bin_np)
+    f1 = f1_score(labels_bin_np, preds_bin_np)
+    precision, recall, f1_per_class, _ = precision_recall_fscore_support(labels_bin_np, preds_bin_np)
+    cm = confusion_matrix(labels_bin_np, preds_bin_np, labels=[0,1])
 
     return {
+        'test_loss': test_loss,
+        'accuracy': float(accuracy),
         'f1': float(f1),
         'precision_macro': float(np.mean(precision)),
         'recall_macro': float(np.mean(recall)),
