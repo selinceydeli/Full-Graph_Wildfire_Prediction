@@ -111,6 +111,8 @@ def main():
     # Configure training parameters
     num_epochs = 5
     batch_size = 16 # we do not want too large batches
+    # loss_criterion = torch.nn.MSELoss()
+    loss_criterion = torch.nn.BCEWithLogitsLoss()
 
     training_start = time.time()
     # Training loop
@@ -137,17 +139,18 @@ def main():
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
     
-    # TODO: Uncomment when training is OK
-    # # Model-specific reshaping of test data
-    # if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
-    #     tst_X = tst_X.unsqueeze(1).flatten(2, 3)
-    # # else: for vanilla gcnn, no reshaping needed
-    # test_start = time.time()
-    # # Evaluate the best model on the test set
-    # test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
-    # test_end = time.time()
-    # print(f"Testing took {test_end - test_start} seconds.")
-    # print(f"Test loss: {test_loss}")
+    # Model-specific reshaping of test data
+    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
+        tst_X = tst_X.unsqueeze(1).flatten(2, 3)
+    # else: for vanilla gcnn, no reshaping needed
+
+    # Evaluate the best model on the test set
+    test_start = time.time()
+    test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, loss_criterion)
+    test_end = time.time()
+
+    print(f"Testing took {test_end - test_start} seconds.")
+    print(f"Test loss: {test_loss}")
 
 
 if __name__ == "__main__":
