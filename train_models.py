@@ -1,6 +1,8 @@
 import time
 import torch
 import numpy as np
+import scipy.sparse as sp
+
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
@@ -52,11 +54,38 @@ def main():
     normalized_dist = dist_matrix / np.max(dist_matrix)
 
     # Create the kNN graph to be used as the spatial adjacency matrix
+    # k is staticly set to 4 (to capture south-north-east-west neighbors)
     k = 4 
     A = knn_graph(normalized_dist, k)
     n = A.shape[0]
     sparsity = 1 - (A.nnz / (n * n)) 
     print(f"Graph sparsity: {sparsity:.4f}") # k = 4 results in sparsity 0.9996
+
+    N = timeseries_data.shape[0]
+    density = A.nnz / (N*(N-1))
+    print(f"[Graph] N={N}, edges={A.nnz//2} (undirected), density={density:.6f}")
+
+    # Sanity checks:
+    # 1. verify node order matches our time series rows
+    assert A.shape[0] == timeseries_data.shape[0]
+
+    # 2. verify node order matches our saved node order
+    try:
+        node_order = np.load("data/node_order.npy", allow_pickle=True)
+        assert A.shape[0] == node_order.shape[0] == timeseries_data.shape[0], \
+            "Mismatch among A, node_order, timeseries_data shapes."
+    except FileNotFoundError:
+        # ok if you didn’t save it; shapes still must match
+        assert A.shape[0] == timeseries_data.shape[0], "A rows must equal timeseries nodes."
+
+    # 3. verify sparsity
+    assert sp.isspmatrix_csr(A), "Adjacency must be CSR (convert with .tocsr())."
+    assert A.shape == (N, N), "Adjacency must be square NxN."
+
+    # 4. verify zero diagonals
+    A_sym_diff = (A - A.T)
+    assert A_sym_diff.nnz == 0 or float(A_sym_diff.power(2).sum()) < 1e-12, "Adjacency must be symmetric."
+    assert A.diagonal().sum() == 0, "Adjacency should have zero diagonal (no self-loops here)."
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

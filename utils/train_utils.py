@@ -1,10 +1,8 @@
 import time
-
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
 from sklearn.metrics import precision_recall_fscore_support, f1_score, confusion_matrix
-
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:

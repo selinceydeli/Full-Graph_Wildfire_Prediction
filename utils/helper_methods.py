@@ -166,7 +166,9 @@ def knn_graph(D, k):
     n = D.shape[0]
     
     # Symmetrize the distance matrix
-    D = 0.5 * (D + D.T)
+
+    # D = 0.5 * (D + D.T)
+    
     D_knn = D.copy()
     np.fill_diagonal(D_knn, np.inf) # Assign infinity to the diagonal to exclude self from nearest neighbors
 
@@ -175,12 +177,15 @@ def knn_graph(D, k):
     cols = np.argpartition(D_knn, kth=k, axis=1)[:, :k] # Returns indices of the k nearest neighbors: (n, k) 
     rows = np.repeat(np.arange(n), k)
     data = np.ones(rows.shape[0], dtype=float)
+    
+    print("Number of zeros in KNN matrix:", np.sum(np.where(D == 0)))
 
     # Create sparse matrix
     A = sp.coo_matrix((data, (rows, cols.ravel())), shape=(n, n)).tocsr()
     A = A.maximum(A.T)                  
     A.setdiag(0)
     A.eliminate_zeros() # Remove zeroes from the sparse matrix
+    print(A.shape)
     return A
 
 
