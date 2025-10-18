@@ -6,20 +6,20 @@ import scipy.sparse as sp
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model
+from utils.train_utils import train_model, train_mode_clusterGCN, make_graph_clusters
 from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
-SELECTED_MODEL = MODEL_NAMES[2] # choose model here
+SELECTED_MODEL = MODEL_NAMES[0] # choose model here
 
 def main():
     # Load the dataset 
     timeseries_data = np.load(file='data/timeseries_data.npy')
 
     # Define the parameters
-    splits = [0.6, 0.2, 0.2]
-    # splits = [0.1, 0.1, 0.8] # for quick testing
+    # splits = [0.6, 0.2, 0.2]
+    splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
@@ -144,24 +144,48 @@ def main():
     # loss_criterion = torch.nn.MSELoss()
     loss_criterion = torch.nn.BCEWithLogitsLoss()
 
-    training_start = time.time()
     # Training loop
-    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
-        model,
-        model_name = SELECTED_MODEL,
+    # training_start = time.time()
+    # best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
+    #     model,
+    #     model_name=SELECTED_MODEL,
+    #     training_data=trn_X.to(device),
+    #     validation_data=val_X.to(device),
+    #     single_step_trn_labels=trn_y.to(device),
+    #     single_step_val_labels=val_y.to(device),
+    #     num_epochs=num_epochs, batch_size=batch_size,
+    #     loss_criterion=loss_criterion,
+    #     optimizer=optimizer, scheduler=scheduler,
+    #     val_metric_criterion=None,
+    #     log_dir=f"./runs/{SELECTED_MODEL}",
+    #     not_learning_limit=15,
+    #     gamma=gamma 
+    # )
+    # training_end = time.time()
+    # print(f"Training took {training_end - training_start} seconds.")
+
+    # Training using ClusterGCN
+    clusters = make_graph_clusters(A, num_clusters=150)
+    training_start = time.time()
+    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_mode_clusterGCN(
+        model=model,
+        model_name=SELECTED_MODEL,
         training_data=trn_X.to(device),
         validation_data=val_X.to(device),
         single_step_trn_labels=trn_y.to(device),
         single_step_val_labels=val_y.to(device),
-        num_epochs=num_epochs, batch_size=batch_size,
+        S_spatial=A,
+        clusters=clusters,
+        num_epochs=num_epochs,
+        clusters_per_batch=3,
         loss_criterion=loss_criterion,
-        optimizer=optimizer, scheduler=scheduler,
+        optimizer=optimizer,
+        scheduler=None,
         val_metric_criterion=None,
-        log_dir = f"./runs/{SELECTED_MODEL}",
+        log_dir=f"./runs/{SELECTED_MODEL}",
         not_learning_limit=15,
-        gamma=gamma 
+        gamma=gamma
     )
-
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
 
