@@ -8,7 +8,7 @@ from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model
+from utils.train_utils import train_model, train_mode_clusterGCN, make_graph_clusters
 from utils.eval_utils import evaluate_model
 from losses.focal_loss import FocalLoss
 from losses.dice_loss import DiceLoss
@@ -221,6 +221,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
 
     
     # Training loop
+    clusters = make_graph_clusters(A, num_clusters=150)
     training_start = time.time()
     print("Training starts with model:", selected_model)
 
@@ -231,15 +232,16 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         validation_data=val_X.to(device),
         single_step_trn_labels=trn_y.to(device),
         single_step_val_labels=val_y.to(device),
-        num_epochs=num_epochs, batch_size=batch_size,
+        S_spatial=A,
+        clusters=clusters,
+        num_epochs=num_epochs,
+        clusters_per_batch=3,
         loss_criterion=loss_criterion,
         optimizer=optimizer, scheduler=scheduler,
         val_metric_criterion=BinaryF1Score(threshold=threshold_tp),
         log_dir=f"./runs/{selected_model}",
-        not_learning_limit=100,
-        gamma=gamma,
-        trn_event_times=trn_evt,       # pass event times (numpy) to train
-        val_event_times=val_evt        # pass event times (numpy) to val
+        not_learning_limit=15,
+        gamma=gamma 
     )
     
     training_end = time.time()
