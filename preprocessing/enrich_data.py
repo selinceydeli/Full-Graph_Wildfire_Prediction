@@ -119,7 +119,6 @@ def split_graphs_into_days(grid:gpd.geodataframe.GeoDataFrame, fire_data:gpd.geo
     fire_data = fire_data.to_crs(grid.crs)
     
     graphs = []
-    i = 0
     for day in tqdm(fires_by_day):
         fire_data_day = fire_data[fire_data["DAY"] == day].copy()
         graph = gpd.sjoin(grid, fire_data_day, how="left", predicate="overlaps")
@@ -132,10 +131,6 @@ def split_graphs_into_days(grid:gpd.geodataframe.GeoDataFrame, fire_data:gpd.geo
         graph = interpolate_and_categorize_columns(graph)
         
         graphs.append(graph)
-        i += 1
-        
-        if i == 10:
-            break 
-        
+
         
     return graphs
