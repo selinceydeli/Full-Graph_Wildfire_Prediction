@@ -26,6 +26,7 @@ def give_cluster_grid_centers(n_clusters: int, grid: gpd.geodataframe.GeoDataFra
         closest_node_centroid = grid.loc[closest_node]["centroid_grid"]
 
         cluster_grid_centers[cluster_id] = (closest_node_id, closest_node_centroid)
+        print(cluster_grid_centers[cluster_id])
 
     return cluster_grid_centers, grid
 
