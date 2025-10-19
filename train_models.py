@@ -5,13 +5,14 @@ import scipy.sparse as sp
 
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
+from model.simple_gc import SimpleGraphConvolution
 from model.vanilla_gcnn import VanillaGCN
 from utils.train_utils import train_model
 from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
-MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
-SELECTED_MODEL = MODEL_NAMES[2] # choose model here
+MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "simple_gc"]
+SELECTED_MODEL = MODEL_NAMES[3] # choose model here
 
 def main():
     # Load the dataset 
@@ -51,7 +52,7 @@ def main():
     )
 
     # Load the distance matrix
-    dist_matrix = np.load(file='data/distance_matrix.npy')
+    dist_matrix = np.load(file='data/dist_matrix.npy')
     normalized_dist = dist_matrix / np.max(dist_matrix)
 
     # Create the kNN graph to be used as the spatial adjacency matrix
@@ -122,7 +123,14 @@ def main():
             hidden_channels=24,
             out_channels=1,
             num_layers=10,
-            dropout=0.1
+            dropout=0.1,
+            device=device
+        ).to(device)
+
+    elif SELECTED_MODEL == "simple_gc":
+        model = SimpleGraphConvolution(
+            in_channels=4,
+            out_channels=1,
         ).to(device)
 
     # Prepare the data for training (model-specific reshaping is done in train_model)

@@ -20,11 +20,14 @@ class VanillaGCN(nn.Module):
 
         # Prepare edge_index and edge_weight from the spatial adjacency matrix
         row, col = S_spatial.nonzero()
-        self.edge_index = np.vstack((row, col))
-        self.edge_index = torch.tensor(self.edge_index, dtype=torch.long)
-        self.edge_weight = S_spatial[row, col].A1
-        self.edge_weight = torch.tensor(self.edge_weight, dtype=torch.float)
+        edge_index = torch.tensor(np.vstack((row, col)), dtype=torch.long)
+        edge_weight = torch.tensor(S_spatial[row, col].A1, dtype=torch.float)
 
+        self.register_buffer("edge_index", edge_index)      # moves with .to(device)
+        if edge_weight is not None:
+            self.register_buffer("edge_weight", edge_weight)
+        else:
+            self.edge_weight = None
         # Build GCNN layers 
         self.convs = nn.ModuleList()
         if num_layers == 1:
