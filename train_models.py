@@ -6,7 +6,8 @@ import scipy.sparse as sp
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model, compute_loss_in_chunks
+from utils.train_utils import train_model
+from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
@@ -17,8 +18,8 @@ def main():
     timeseries_data = np.load(file='data/timeseries_data.npy')
 
     # Define the parameters
-    # splits = [0.6, 0.2, 0.2]
-    splits = [0.1, 0.1, 0.8] # for quick testing
+    splits = [0.6, 0.2, 0.2]
+    # splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
@@ -140,6 +141,8 @@ def main():
     # Configure training parameters
     num_epochs = 5
     batch_size = 16 # we do not want too large batches
+    # loss_criterion = torch.nn.MSELoss()
+    loss_criterion = torch.nn.BCEWithLogitsLoss()
 
     training_start = time.time()
     # Training loop
@@ -151,7 +154,7 @@ def main():
         single_step_trn_labels=trn_y.to(device),
         single_step_val_labels=val_y.to(device),
         num_epochs=num_epochs, batch_size=batch_size,
-        loss_criterion=torch.nn.MSELoss(),
+        loss_criterion=loss_criterion,
         optimizer=optimizer, scheduler=scheduler,
         val_metric_criterion=None,
         log_dir = f"./runs/{SELECTED_MODEL}",
@@ -166,17 +169,17 @@ def main():
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
     
-    # TODO: Uncomment when training is OK - this is to evaluate on the best model
-    # # Model-specific reshaping of test data
-    # if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
-    #     tst_X = tst_X.unsqueeze(1).flatten(2, 3)
-    # # else: for vanilla gcnn, no reshaping needed
-    # test_start = time.time()
-    # # Evaluate the best model on the test set
-    # test_loss = compute_loss_in_chunks(best_model, tst_X, tst_y, torch.nn.MSELoss())
-    # test_end = time.time()
-    # print(f"Testing took {test_end - test_start} seconds.")
-    # print(f"Test loss: {test_loss}")
+    # Model-specific reshaping of test data
+    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
+        tst_X = tst_X.unsqueeze(1).flatten(2, 3)
+    # else: for vanilla gcnn, no reshaping needed
+
+    # Evaluate the best model on the test set
+    metrics = evaluate_model(best_model, tst_X, tst_y, loss_criterion)
+
+    print("Test set metrics:")
+    for key, value in metrics.items():
+        print(f"  {key}: {value}")
 
 
 if __name__ == "__main__":

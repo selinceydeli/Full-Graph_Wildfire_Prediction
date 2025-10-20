@@ -1,9 +1,7 @@
 import time
-
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
-from tqdm import tqdm
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -63,6 +61,13 @@ def compute_loss_in_chunks(model: torch.nn.Module,
             pred = model(batch_x)            # -> [batch, N]
             loss = criterion(pred, batch_y)
             losses.append(loss.item())
+            
+            # Debug block
+            # print("Loss computations:")
+            # print(pred)
+            # print(batch_y)
+            # print(f"Loss: {loss.item()}")
+            # print()
 
     val_loss = float(np.mean(losses)) if losses else 0.0
     return round(val_loss, 3)
