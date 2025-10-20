@@ -2,6 +2,7 @@ import time
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
+from typing import Optional
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -19,10 +20,13 @@ def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
 
 def perform_chunk_predictions(model: torch.nn.Module,
                               data: torch.Tensor,
-                              chunk_size: int = 300) -> torch.Tensor:
+                              chunk_size: int = 300,
+                              event_times: Optional[np.ndarray] = None) -> torch.Tensor:
     """
-    Generic chunked inference.
-    Accepts data shaped [B, F, N*T] or [B, F, N, T]; returns [B, N].
+    Runs forward passes in chunks to obtain predictions for the whole set.
+    If `event_times` (numpy [B, T]) is provided, it will be sliced per chunk and
+    passed to event-based models via `event_times_batch=...`.
+    Returns a tensor of shape [B, N].
     """
     model.eval()
     device = next(model.parameters()).device
@@ -33,10 +37,19 @@ def perform_chunk_predictions(model: torch.nn.Module,
         for start in range(0, n_samples, chunk_size):
             end = min(start + chunk_size, n_samples)
             batch_x = data[start:end].to(device, non_blocking=True)
-            pred = model(batch_x)            # -> [batch, N]
-            preds.append(pred)
 
-    return torch.cat(preds, dim=0)
+            evt_batch = None
+            if event_times is not None:
+                evt_batch = event_times[start:end]  # keep numpy
+
+            if "event" in model.__class__.__name__.lower():
+                batch_pred = model(batch_x, event_times_batch=evt_batch)  # [b, N]
+            else:
+                batch_pred = model(batch_x)                                # [b, N]
+
+            preds.append(batch_pred.detach().cpu())
+
+    return torch.cat(preds, dim=0) if preds else torch.empty(0)
 
 
 def compute_loss_in_chunks(model: torch.nn.Module,
@@ -131,7 +144,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             print(f"Batch: {int(batch_idx/batch_size)}")
 
             batch_indices = permutation[batch_idx:batch_idx + batch_size]
-            batch_trn_data = training_data[batch_indices, :, :]
+            batch_trn_data = training_data[batch_indices]
             batch_one_step_trn_labels = single_step_trn_labels[batch_indices]
 
             evt_batch = None
