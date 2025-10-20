@@ -1,56 +1,113 @@
 import numpy as np
 import geopandas as gpd
 import pandas as pd
-from typing import List
+from pathlib import Path
+from typing import Optional, Sequence
 
+def export_distance_matrix(
+    grid: gpd.GeoDataFrame,
+    outpath: str = "data/distance_matrix.npy",
+    nodes: Optional[Sequence[int]] = None,   # pass np.load("data/nodes.npy")
+    assert_projected: bool = True,
+) -> np.ndarray:
+    
+    if assert_projected:
+        assert grid.crs is not None and not grid.crs.is_geographic, "Grid CRS must be projected (meters)."
 
-def export_distance_matrix(grid: gpd.geodataframe.GeoDataFrame):
-    cent = grid.geometry.centroid
-    N = len(cent)
-    A = np.zeros(shape=(N, N))
+    # Align grid rows to the nodes order used in timeseries data
+    if nodes is not None:
+        idxer = pd.Index(grid["node_id"]).get_indexer(nodes)
+        if (idxer < 0).any():
+            missing = np.asarray(nodes)[idxer < 0]
+            raise ValueError(f"{len(missing)} node_ids in nodes.npy not in grid: {missing[:10]}...")
+        grid = grid.iloc[idxer].copy()
+        assert np.array_equal(grid["node_id"].to_numpy(), np.asarray(nodes)), "Grid not aligned to nodes order."
 
-    grid_points = grid["geometry"].to_numpy()
-    P1s = np.array(list(map(lambda x: np.array([x.centroid.x, x.centroid.y]), grid_points[:])))
-    P2s = np.array(list(map(lambda x: np.array([x.centroid.x, x.centroid.y]), grid_points[:])))
+    # Compute centroid coordinates and pairwise distances
+    centroids = grid.geometry.centroid
+    P = np.column_stack([centroids.x.values, centroids.y.values]).astype(float)
+    diff = P[:, None, :] - P[None, :, :]
+    A = np.sqrt(np.sum(diff * diff, axis=2))
+    np.fill_diagonal(A, 0.0)
 
-    A = np.sum((P1s[:, None, :] - P2s[None, :, :]) ** 2, axis=2) ** 0.5
-    np.fill_diagonal(A, 0.0)  # ensure exact zero self-distances
-    filename = "data/distance_matrix.npy"
-    np.save(filename, A)
-
-    # Sanity check to make sure the dist is in meters, not latitude
-    assert grid.crs and not grid.crs.is_geographic
-
-    print("Saved distance matrix as", filename)
-
-
-def construct_timeseries_data(graphs: List[gpd.geodataframe.GeoDataFrame]):
-    long = pd.concat(
-        [
-            g.copy()  # ensure consistent dtype
-            for g in graphs
-        ],
-        axis=0,
+    Path(outpath).parent.mkdir(parents=True, exist_ok=True)
+    np.save(outpath, A)
+    print(
+        f"Saved distance matrix as {outpath}, shape={A.shape}, "
+        f"symmetric={np.allclose(A, A.T)}, zero_diag={np.allclose(np.diag(A), 0.0)}"
     )
+    return A
 
-    print(long.columns)
 
-    N = len(long.node_id.unique())
-    T = len(long.DAY.unique())
-    print(long.DAY.unique())
-    M = len(long.columns)
+def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"):
+    import json
+    from pathlib import Path
 
-    columns = list(long.columns)
-    columns.remove("DAY")
-    columns.remove("node_id")
+    long = pd.concat([g.copy() for g in graphs], axis=0, ignore_index=True)
+    long["DAY"] = pd.to_datetime(long["DAY"], errors="coerce").dt.normalize()
+    long = long.dropna(subset=["node_id", "DAY"])
+    long["node_id"] = long["node_id"].astype(int)
 
-    print("N x M x T:", f'{N} x {M} x {T}')
+    long = long.drop(columns=[c for c in ["geometry", "centroid_grid"] if c in long.columns], errors="ignore")
 
-    print("rows", len(long), "expected", N * T, "ratio", len(long) / (N * T))
-    dup_counts = (long.groupby(["node_id", "DAY"]).size())
-    print("num duplicated (node_id,DAY) pairs:", (dup_counts > 1).sum())
-    timeseries_data = long.sort_values(by=['node_id', 'DAY'])[columns].values.reshape(N, T, M - 2)
-    filename = "data/timeseries_data.npy"
-    np.save(filename, timeseries_data)
+    # Aggregate to get 1 row per (node_id, DAY)
+    key = ["node_id", "DAY"]
+    value_cols = [c for c in long.columns if c not in key]
 
-    print("Saved distance matrix as", filename)
+    sum_cols  = {"prcp", "fire_intensity", "30DAYS", "7DAYS"}
+    max_cols  = {"has_fire", "FireSeason"}
+    mean_cols = {"tavg", "tmin", "tmax", "wspd", "pres"}
+    first_cols = set(value_cols) - sum_cols - max_cols - mean_cols
+
+    agg = {}
+    for c in value_cols:
+        if c in sum_cols:   agg[c] = "sum"
+        elif c in max_cols: agg[c] = "max"
+        elif c in mean_cols:agg[c] = "mean"
+        else:               agg[c] = "first"
+
+    pre_counts = long.groupby(key, as_index=False).size()
+    collisions = int((pre_counts["size"] > 1).sum())
+    print(f"[diagnostics] rows={len(long)}, unique pairs={len(pre_counts)}, collisions={collisions}")
+
+    # Collapse duplicates
+    long = long.groupby(key, as_index=False).agg(agg)
+
+    # Create the rectangular panel
+    nodes = np.sort(long["node_id"].unique())
+    days = np.sort(long["DAY"].unique())
+    panel_index = pd.MultiIndex.from_product([nodes, days], names=key)
+    panel = long.set_index(key).reindex(panel_index)
+
+    static_candidates = {"PROVINCE","BROADLEA","CONIFER","MIXED","TRANSIT","OTHERNATLC",
+                         "AGRIAREAS","ARTIFSURF","OTHERLC","PERCNA2K","dist_to_water"}
+    static_cols = [c for c in panel.columns if c in static_candidates]
+    if static_cols:
+        panel[static_cols] = panel.groupby(level=0)[static_cols].ffill().bfill()
+
+    # Keep only the numeric columns
+    num_panel = panel.select_dtypes(include=[np.number, "bool"]).copy()
+    bool_cols = list(num_panel.select_dtypes(include=["bool"]).columns)
+    if bool_cols:
+        num_panel[bool_cols] = num_panel[bool_cols].astype(float)
+
+    # Print dropped non-numeric columns
+    dropped = [c for c in panel.columns if c not in num_panel.columns]
+    if dropped:
+        print(f"[info] Dropping non-numeric columns from tensor: {dropped}")
+
+    N, T = len(nodes), len(days)
+    assert num_panel.shape[0] == N*T, f"Rectangularity failed: {num_panel.shape[0]} != {N*T}"
+
+    feat_cols = list(num_panel.columns)
+    X = num_panel.to_numpy(dtype=float).reshape(N, T, len(feat_cols))
+
+    Path("data").mkdir(parents=True, exist_ok=True)
+    np.save(save_path, X)
+    np.save("data/nodes.npy", nodes)
+    np.save("data/days.npy", days)
+    with open("data/feat_cols.json", "w") as f:
+        json.dump(feat_cols, f)
+
+    print(f"Saved timeseries to {save_path} with shape {X.shape} (N={N}, T={T}, M={len(feat_cols)})")
+    return X, nodes, days, feat_cols
