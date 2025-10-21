@@ -22,21 +22,24 @@ def main():
     assert np.all((days[1:] - days[:-1]) >= np.timedelta64(0, 'ns')), "days must be non-decreasing"
 
     # Load the dataset 
-    timeseries_data = np.load(file='data/timeseries_data.npy')
+    timeseries_data = np.load(file='data/timeseries_data.npy') # shape: (N_stations, T_timestamps, F_features)
 
     # Define the parameters
-    splits = [0.6, 0.2, 0.2]
-    # splits = [0.1, 0.1, 0.8] # for quick testing
+    # splits = [0.6, 0.2, 0.2]
+    splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_data.shape[0]
     n_timestamps = timeseries_data.shape[1]
+    n_features = timeseries_data.shape[2]
 
     print(f"split: {splits}, pred_horizon: {pred_horizon}, obs_window: {obs_window}")
-    print(f"The dataset contains {n_timestamps} measurements over {n_stations} stations.")
+    print(f"There are {n_stations} nodes.")
+    print(f"There are {n_timestamps} measurements.")
+    print(f"There are {n_features} features.")
 
-    # shapes: timeseries_data -> (N_nodes, T_time)
-    assert timeseries_data.ndim == 2, "timeseries_data must be 2D (nodes x time)"
+    # shapes: timeseries_data -> (N_nodes, T_time, F_features)
+    assert timeseries_data.ndim == 3, "timeseries_data must be 3D (nodes x time x features)"
 
     # sanity checks
     T = timeseries_data.shape[1]
