@@ -119,12 +119,6 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     tensorboard = SummaryWriter(log_dir=log_dir)
     trn_loss_per_epoch, val_loss_per_epoch = [], []
 
-    # Model-specific reshaping of training/validation data
-    if model_name in ["parametric_gtcnn", "disjoint_st_baseline"]:
-        # [B, N, T] -> [B,1,N,T] -> [B,1,N*T]
-        training_data = training_data.unsqueeze(1).flatten(2, 3)  
-        validation_data = validation_data.unsqueeze(1).flatten(2, 3)
-
     n_trn_samples = training_data.size()[0]
     n_batches_per_epoch = int(n_trn_samples / batch_size)
 

@@ -12,7 +12,7 @@ from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
-SELECTED_MODEL = MODEL_NAMES[3] # choose model here
+SELECTED_MODEL = MODEL_NAMES[2] # choose model here
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -31,7 +31,7 @@ def main():
     obs_window = 4
     n_stations = timeseries_data.shape[0]
     n_timestamps = timeseries_data.shape[1]
-    n_features = timeseries_data.shape[2]
+    n_features = timeseries_data.shape[2] - 1  # exclude target feature
 
     print(f"split: {splits}, pred_horizon: {pred_horizon}, obs_window: {obs_window}")
     print(f"There are {n_stations} nodes.")
@@ -52,6 +52,7 @@ def main():
     assert all(L >= need for L in [L_trn, L_val, L_tst]), \
         f"Each split must have at least {need} time steps."
 
+    # TODO: not forecasting
     dataset = create_forecasting_dataset(
         timeseries_data,
         splits=splits,
@@ -99,20 +100,35 @@ def main():
     val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
     tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
 
+    print("Train shape:")
+    print(f"Training samples: {trn_X.shape}, Validation samples: {val_X.shape}, Test samples: {tst_X.shape}")
+
     trn_evt = dataset['trn'].get('event_times', None)   # numpy [B, T]
     val_evt = dataset['val'].get('event_times', None)
     tst_evt = dataset['tst'].get('event_times', None)
 
+    trn_y = torch.tensor(dataset['trn']['labels'][:, :, :], dtype=torch.float32)  # [B,N]
+    val_y = torch.tensor(dataset['val']['labels'][:, :, :], dtype=torch.float32)
+    tst_y = torch.tensor(dataset['tst']['labels'][:, :, :], dtype=torch.float32)
+
+    print("Before:")
+    print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
+    # print(f"{trn_y[:,0,:,:]}")
+
     trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)  # [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
     tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32)
+    print(trn_y.nonzero())
+
+    print("After:")
+    print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
 
    # Define the model
     if SELECTED_MODEL == "parametric_gtcnn":
         model = ParametricGTCNN(
             S_spatial=A,
             T=obs_window,
-            F_in=1,
+            F_in=n_features,
             hidden_dims=(64,64),
             K=2,
             pool="mean",
@@ -124,7 +140,7 @@ def main():
         model = DisjointSTModel(
             S_spatial=A,
             T=obs_window,
-            F_in=1,
+            F_in=n_features,
             spatial_hidden=(64, 64),
             temporal_hidden=64,
             K=2,
@@ -133,9 +149,10 @@ def main():
         ).to(device)
 
     elif SELECTED_MODEL == "vanilla_gcnn":
+        in_channels = n_features * obs_window
         model = VanillaGCN(
             S_spatial=A,
-            in_channels=4,
+            in_channels=in_channels,
             hidden_channels=24,
             out_channels=1,
             num_layers=10,
@@ -147,14 +164,22 @@ def main():
         model = ParametricGTCNN_Event(
             S_spatial=A,
             obs_window=obs_window,
-            F_in=1, hidden_dims=(64,64), K=2, pool="mean",
+            F_in=n_features, hidden_dims=(64,64), K=2, pool="mean",
             init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
-        # Event model expects [B,1,N,T]
-        trn_X = trn_X.unsqueeze(1)
-        val_X = val_X.unsqueeze(1)
-        tst_X = tst_X.unsqueeze(1)
+
+    # Model-specific reshaping
+    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline", "parametric_gtcnn_event"]:
+        # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
+        trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
+        val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
+    elif SELECTED_MODEL in ["vanilla_gcnn"]:
+        # [B,N,T,F] -> [B,N,F*T]
+        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3) # TODO: check if this is correct
+        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
 
     # Train config
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
@@ -193,11 +218,6 @@ def main():
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
             title=f"{SELECTED_MODEL} — train/val loss", model_name=SELECTED_MODEL, save_path=None)
-    
-    # Model-specific reshaping of test data
-    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
-        tst_X = tst_X.unsqueeze(1).flatten(2, 3)
-    # else: for vanilla gcnn, no reshaping needed
 
     # Evaluate the best model on the test set
     metrics = evaluate_model(

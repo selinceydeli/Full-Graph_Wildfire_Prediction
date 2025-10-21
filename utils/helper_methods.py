@@ -50,11 +50,21 @@ def create_forecasting_dataset(graph_signals,
                                splits: list,
                                pred_horizon: int,
                                obs_window: int,
-                               in_sample_mean: bool,
+                               in_sample_mean: bool = True,
                                days=None,
                                return_event_times=False):
+    """
+    Creates a forecasting dataset for node-level prediction.
     
-    T = graph_signals.shape[1]
+    features = ['dist_to_water', 'has_fire', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd', 'pres']
+    'has_fire' is used as the target label.
+    """
+
+    label_idx = 1  # index of the 'has_fire' label in the features
+    N, T, F = graph_signals.shape
+    feature_indices = [i for i in range(F) if i != label_idx]  # all features except label
+
+    # Split indices
     max_idx_trn = int(T * splits[0])
     max_idx_val = int(T * sum(splits[:-1]))
     split_idx = np.split(np.arange(T), [max_idx_trn, max_idx_val])
@@ -62,16 +72,18 @@ def create_forecasting_dataset(graph_signals,
     data_dict = {}
     data_type = ['trn', 'val', 'tst']
 
+    # Optionally normalize features (exclude label)
     if in_sample_mean:
-        in_sample_means = graph_signals[:, :max_idx_trn].mean(axis=1, keepdims=True)
-        data = graph_signals - in_sample_means
+        in_sample_means = graph_signals[:, :max_idx_trn, feature_indices].mean(axis=1, keepdims=True)
+        data = graph_signals.copy()
+        data[:, :, feature_indices] -= in_sample_means
         data_dict["in_sample_means"] = in_sample_means
     else:
         data = graph_signals
 
     for i in range(3):
         idxs = split_idx[i]
-        split_data = data[:, idxs]
+        split_data = data[:, idxs, :]   # [N, T_split, F]
         data_points = []
         targets = []
         evt_times = [] if return_event_times else None
@@ -81,21 +93,24 @@ def create_forecasting_dataset(graph_signals,
         B = max(0, T_split - L + 1)
 
         for j in range(B):
-            data_points.append(split_data[:, j:j+obs_window])
-            targets.append(split_data[:, j+obs_window:j+L])
+            # Input features: [N, obs_window, F-1]
+            data_points.append(split_data[:, j:j+obs_window, feature_indices])
+            # Target labels: [N, pred_horizon] (single true label)
+            targets.append(split_data[:, j+obs_window:j+L, label_idx])
 
             if return_event_times:
-                # take the actual timestamps for this window, convert to elapsed days from t0
-                win_days = days[idxs[j:j+obs_window]]  # datetime64[ns]
+                win_days = days[idxs[j:j+obs_window]]  # datetime64
                 dt = (win_days.astype('datetime64[m]') - win_days[0]).astype('timedelta64[m]').astype(float) / (60*24.0)
-                evt_times.append(dt.astype(np.float32))  # shape (obs_window,)
+                evt_times.append(dt.astype(np.float32))
 
         pack = {
-            'data':   np.stack(data_points, axis=0),
-            'labels': np.stack(targets, axis=0)
+            'data': np.stack(data_points, axis=0),    # [B, N, obs_window, F-1]
+            'labels': np.stack(targets, axis=0)      # [B, N, pred_horizon]
         }
+
         if return_event_times:
-            pack['event_times'] = np.stack(evt_times, axis=0)  # shape [B, obs_window]
+            pack['event_times'] = np.stack(evt_times, axis=0)  # [B, obs_window]
+
         data_dict[data_type[i]] = pack
 
     print("dataset has been created.")
