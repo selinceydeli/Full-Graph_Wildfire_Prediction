@@ -97,26 +97,18 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Prepare the data for training
-    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)   # [B,N,T]
+    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)   # [B,N,T,F]
     val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
     tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
 
-    trn_evt = dataset['trn'].get('event_times', None)   # numpy [B, T]
+    trn_evt = dataset['trn'].get('event_times', None)   # numpy [B,T]
     val_evt = dataset['val'].get('event_times', None)
     tst_evt = dataset['tst'].get('event_times', None)
 
-    # trn_y = torch.tensor(dataset['trn']['labels'], dtype=torch.float32)  # [B,N]
-    # val_y = torch.tensor(dataset['val']['labels'], dtype=torch.float32)
-    # tst_y = torch.tensor(dataset['tst']['labels'], dtype=torch.float32)
-    # print("Before:")
-    # print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
-
-    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)  # [B,N]
+    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)  # [B,N,pred_horizon] -> [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
     tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32)
-    # print("After:")
-    # print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
-
+   
    # Define the model
     if SELECTED_MODEL == "parametric_gtcnn":
         model = ParametricGTCNN(

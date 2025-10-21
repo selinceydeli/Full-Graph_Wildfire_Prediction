@@ -59,7 +59,6 @@ def create_forecasting_dataset(features: np.ndarray,
     features = ['dist_to_water', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd', 'pres']
     """
 
-    label_idx = 1  # index of the 'has_fire' label in the features
     N, T, F = features.shape
 
     # Split indices
@@ -94,7 +93,7 @@ def create_forecasting_dataset(features: np.ndarray,
             # Input features: [N, obs_window, F]
             data_points.append(split_features[:, j:j+obs_window, :])
             # Target labels: [N, pred_horizon] (single true label)
-            targets.append(split_labels[:, j:j+obs_window])
+            targets.append(split_labels[:, j+obs_window:j+obs_window+pred_horizon])
 
             if return_event_times:
                 win_days = days[idxs[j:j+obs_window]]  # datetime64
