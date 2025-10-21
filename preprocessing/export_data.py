@@ -4,13 +4,13 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional, Sequence
 
+
 def export_distance_matrix(
-    grid: gpd.GeoDataFrame,
-    outpath: str = "data/distance_matrix.npy",
-    nodes: Optional[Sequence[int]] = None,   # pass np.load("data/nodes.npy")
-    assert_projected: bool = True,
+        grid: gpd.GeoDataFrame,
+        outpath: str = "data/distance_matrix.npy",
+        nodes: Optional[Sequence[int]] = None,  # pass np.load("data/nodes.npy")
+        assert_projected: bool = True,
 ) -> np.ndarray:
-    
     if assert_projected:
         assert grid.crs is not None and not grid.crs.is_geographic, "Grid CRS must be projected (meters)."
 
@@ -54,17 +54,20 @@ def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"
     key = ["node_id", "DAY"]
     value_cols = [c for c in long.columns if c not in key]
 
-    sum_cols  = {"prcp", "fire_intensity", "30DAYS", "7DAYS"}
-    max_cols  = {"has_fire", "FireSeason"}
+    sum_cols = {"prcp", "fire_intensity", "30DAYS", "7DAYS"}
+    max_cols = {"has_fire", "FireSeason"}
     mean_cols = {"tavg", "tmin", "tmax", "wspd", "pres"}
-    first_cols = set(value_cols) - sum_cols - max_cols - mean_cols
 
     agg = {}
     for c in value_cols:
-        if c in sum_cols:   agg[c] = "sum"
-        elif c in max_cols: agg[c] = "max"
-        elif c in mean_cols:agg[c] = "mean"
-        else:               agg[c] = "first"
+        if c in sum_cols:
+            agg[c] = "sum"
+        elif c in max_cols:
+            agg[c] = "max"
+        elif c in mean_cols:
+            agg[c] = "mean"
+        else:
+            agg[c] = "first"
 
     pre_counts = long.groupby(key, as_index=False).size()
     collisions = int((pre_counts["size"] > 1).sum())
@@ -79,12 +82,13 @@ def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"
     panel_index = pd.MultiIndex.from_product([nodes, days], names=key)
     panel = long.set_index(key).reindex(panel_index)
 
-    static_candidates = {"PROVINCE","BROADLEA","CONIFER","MIXED","TRANSIT","OTHERNATLC",
-                         "AGRIAREAS","ARTIFSURF","OTHERLC","PERCNA2K","dist_to_water"}
+    static_candidates = {"PROVINCE", "BROADLEA", "CONIFER", "MIXED", "TRANSIT", "OTHERNATLC",
+                         "AGRIAREAS", "ARTIFSURF", "OTHERLC", "PERCNA2K", "dist_to_water"}
     static_cols = [c for c in panel.columns if c in static_candidates]
     if static_cols:
         panel[static_cols] = panel.groupby(level=0)[static_cols].ffill().bfill()
 
+    print(panel[static_cols].dtypes)
     # Keep only the numeric columns
     num_panel = panel.select_dtypes(include=[np.number, "bool"]).copy()
     bool_cols = list(num_panel.select_dtypes(include=["bool"]).columns)
@@ -97,7 +101,7 @@ def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"
         print(f"[info] Dropping non-numeric columns from tensor: {dropped}")
 
     N, T = len(nodes), len(days)
-    assert num_panel.shape[0] == N*T, f"Rectangularity failed: {num_panel.shape[0]} != {N*T}"
+    assert num_panel.shape[0] == N * T, f"Rectangularity failed: {num_panel.shape[0]} != {N * T}"
 
     feat_cols = list(num_panel.columns)
     X = num_panel.to_numpy(dtype=float).reshape(N, T, len(feat_cols))
