@@ -9,10 +9,10 @@ from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
 from utils.train_utils import train_model
 from utils.eval_utils import evaluate_model
-from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
+from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
-SELECTED_MODEL = MODEL_NAMES[2] # choose model here
+SELECTED_MODEL = MODEL_NAMES[3] # choose model here
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -26,8 +26,8 @@ def main():
     timeseries_labels = np.load(file='data/labels.npy')   # shape: (N_stations, T_timestamps)
 
     # Define the parameters
-    # splits = [0.6, 0.2, 0.2]
-    splits = [0.1, 0.1, 0.8] # for quick testing
+    splits = [0.6, 0.2, 0.2]
+    # splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_features.shape[0]
@@ -108,8 +108,13 @@ def main():
     trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)  # [B,N,pred_horizon] -> [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
     tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32)
-   
-   # Define the model
+
+    # Check for NaNs and handle them (mean imputation here)
+    trn_X = impute_nan_with_feature_mean(trn_X, show_nan_info=True)
+    val_X = impute_nan_with_feature_mean(val_X, show_nan_info=True)
+    tst_X = impute_nan_with_feature_mean(tst_X, show_nan_info=True)
+
+    # Define the model
     if SELECTED_MODEL == "parametric_gtcnn":
         model = ParametricGTCNN(
             S_spatial=A,
@@ -177,7 +182,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     num_epochs = 1
-    batch_size = 64
+    batch_size = 64 #16
 
     loss_criterion = torch.nn.BCEWithLogitsLoss()
 

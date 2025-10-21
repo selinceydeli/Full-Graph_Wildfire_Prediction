@@ -119,6 +119,24 @@ def create_forecasting_dataset(features: np.ndarray,
     return data_dict
 
 
+def impute_nan_with_feature_mean(X: torch.Tensor, show_nan_info: bool = False) -> torch.Tensor:
+    """Impute NaN values in the input tensor X with the mean value of each feature across all nodes and time steps."""
+    if show_nan_info:
+        nan_mask = torch.isnan(X)
+        print("Number of NaNs:", nan_mask.sum().item())
+
+        # If you want to see some example indices of NaNs, uncomment below:
+        # b_idx, n_idx, t_idx, f_idx = torch.where(nan_mask)
+        # print("Example bad indices:")
+        # for i in range(min(10, len(b_idx))):
+        #     print(f"Batch {b_idx[i]}, Node {n_idx[i]}, Time {t_idx[i]}, Feature {f_idx[i]}")
+
+    # Mean imputation per feature
+    mean_vals = torch.nanmean(X, dim=(0,1,2), keepdim=True)
+    X_imputed = torch.where(nan_mask, mean_vals, X)
+    return X_imputed
+
+
 # --- Helper methods for product graph creation ---
 def time_chain_adjacency(T: int, weight: float = 1.0):
     '''
