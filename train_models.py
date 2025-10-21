@@ -12,7 +12,7 @@ from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
-SELECTED_MODEL = MODEL_NAMES[3] # choose model here
+SELECTED_MODEL = MODEL_NAMES[2] # choose model here
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -181,8 +181,8 @@ def main():
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    num_epochs = 1
-    batch_size = 64 #16
+    num_epochs = 50
+    batch_size = 16
 
     loss_criterion = torch.nn.BCEWithLogitsLoss()
 
