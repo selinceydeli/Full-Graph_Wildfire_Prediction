@@ -46,7 +46,8 @@ def torch_sparse_row_norm(A: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
 
 
 # --- Helper method for dataset creation ---
-def create_forecasting_dataset(graph_signals,
+def create_forecasting_dataset(features: np.ndarray,
+                               labels: np.ndarray,
                                splits: list,
                                pred_horizon: int,
                                obs_window: int,
@@ -55,14 +56,11 @@ def create_forecasting_dataset(graph_signals,
                                return_event_times=False):
     """
     Creates a forecasting dataset for node-level prediction.
-    
-    features = ['dist_to_water', 'has_fire', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd', 'pres']
-    'has_fire' is used as the target label.
+    features = ['dist_to_water', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd', 'pres']
     """
 
     label_idx = 1  # index of the 'has_fire' label in the features
-    N, T, F = graph_signals.shape
-    feature_indices = [i for i in range(F) if i != label_idx]  # all features except label
+    N, T, F = features.shape
 
     # Split indices
     max_idx_trn = int(T * splits[0])
@@ -74,29 +72,29 @@ def create_forecasting_dataset(graph_signals,
 
     # Optionally normalize features (exclude label)
     if in_sample_mean:
-        in_sample_means = graph_signals[:, :max_idx_trn, feature_indices].mean(axis=1, keepdims=True)
-        data = graph_signals.copy()
-        data[:, :, feature_indices] -= in_sample_means
+        in_sample_means = features[:, :max_idx_trn, :].mean(axis=1, keepdims=True)
+        data = features - in_sample_means
         data_dict["in_sample_means"] = in_sample_means
     else:
-        data = graph_signals
+        data = features
 
-    for i in range(3):
+    for i in range(len(data_type)):
         idxs = split_idx[i]
-        split_data = data[:, idxs, :]   # [N, T_split, F]
+        split_features = data[:, idxs, :]   # [N, T_split, F]
+        split_labels = labels[:, idxs]      # [N, T_split]
         data_points = []
         targets = []
         evt_times = [] if return_event_times else None
 
-        T_split = split_data.shape[1]
+        T_split = split_features.shape[1]
         L = obs_window + pred_horizon
         B = max(0, T_split - L + 1)
 
         for j in range(B):
-            # Input features: [N, obs_window, F-1]
-            data_points.append(split_data[:, j:j+obs_window, feature_indices])
+            # Input features: [N, obs_window, F]
+            data_points.append(split_features[:, j:j+obs_window, :])
             # Target labels: [N, pred_horizon] (single true label)
-            targets.append(split_data[:, j+obs_window:j+L, label_idx])
+            targets.append(split_labels[:, j:j+obs_window])
 
             if return_event_times:
                 win_days = days[idxs[j:j+obs_window]]  # datetime64
@@ -104,8 +102,8 @@ def create_forecasting_dataset(graph_signals,
                 evt_times.append(dt.astype(np.float32))
 
         pack = {
-            'data': np.stack(data_points, axis=0),    # [B, N, obs_window, F-1]
-            'labels': np.stack(targets, axis=0)      # [B, N, pred_horizon]
+            'data': np.stack(data_points, axis=0),    # [B, N, obs_window, F]
+            'labels': np.stack(targets, axis=0)       # [B, N, pred_horizon]
         }
 
         if return_event_times:

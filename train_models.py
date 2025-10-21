@@ -22,16 +22,17 @@ def main():
     assert np.all((days[1:] - days[:-1]) >= np.timedelta64(0, 'ns')), "days must be non-decreasing"
 
     # Load the dataset 
-    timeseries_data = np.load(file='data/timeseries_data.npy') # shape: (N_stations, T_timestamps, F_features)
+    timeseries_features = np.load(file='data/timeseries_data.npy') # shape: (N_stations, T_timestamps, F_features)
+    timeseries_labels = np.load(file='data/labels.npy')   # shape: (N_stations, T_timestamps)
 
     # Define the parameters
     # splits = [0.6, 0.2, 0.2]
     splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
-    n_stations = timeseries_data.shape[0]
-    n_timestamps = timeseries_data.shape[1]
-    n_features = timeseries_data.shape[2] - 1  # exclude target feature
+    n_stations = timeseries_features.shape[0]
+    n_timestamps = timeseries_features.shape[1]
+    n_features = timeseries_features.shape[2]
 
     print(f"split: {splits}, pred_horizon: {pred_horizon}, obs_window: {obs_window}")
     print(f"There are {n_stations} nodes.")
@@ -39,10 +40,10 @@ def main():
     print(f"There are {n_features} features.")
 
     # shapes: timeseries_data -> (N_nodes, T_time, F_features)
-    assert timeseries_data.ndim == 3, "timeseries_data must be 3D (nodes x time x features)"
+    assert timeseries_features.ndim == 3, "timeseries_features must be 3D (nodes x time x features)"
 
     # sanity checks
-    T = timeseries_data.shape[1]
+    T = timeseries_features.shape[1]
     idx_trn = int(T * splits[0])
     idx_val = int(T * (splits[0] + splits[1]))
     L_trn = idx_trn
@@ -52,9 +53,9 @@ def main():
     assert all(L >= need for L in [L_trn, L_val, L_tst]), \
         f"Each split must have at least {need} time steps."
 
-    # TODO: not forecasting
     dataset = create_forecasting_dataset(
-        timeseries_data,
+        features=timeseries_features,
+        labels=timeseries_labels,
         splits=splits,
         pred_horizon=pred_horizon,
         obs_window=obs_window,
@@ -75,16 +76,16 @@ def main():
     sparsity = 1 - (A.nnz / (n * n)) 
     print(f"Graph sparsity: {sparsity:.4f}") # k = 4 results in sparsity 0.9996
 
-    N = timeseries_data.shape[0]
+    N = timeseries_features.shape[0]
     density = A.nnz / (N*(N-1))
     print(f"[Graph] N={N}, edges={A.nnz//2} (undirected), density={density:.6f}")
 
     # Sanity checks
-    assert A.shape[0] == timeseries_data.shape[0]
+    assert A.shape[0] == N
     try:
         node_order = np.load("data/node_order.npy", allow_pickle=True)
-        assert A.shape[0] == node_order.shape[0] == timeseries_data.shape[0], \
-            "Mismatch among A, node_order, timeseries_data shapes."
+        assert A.shape[0] == node_order.shape[0] == N, \
+            "Mismatch among A, node_order, timeseries_features shapes."
     except FileNotFoundError:
         pass
     assert sp.isspmatrix_csr(A)
@@ -100,28 +101,21 @@ def main():
     val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
     tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
 
-    print("Train shape:")
-    print(f"Training samples: {trn_X.shape}, Validation samples: {val_X.shape}, Test samples: {tst_X.shape}")
-
     trn_evt = dataset['trn'].get('event_times', None)   # numpy [B, T]
     val_evt = dataset['val'].get('event_times', None)
     tst_evt = dataset['tst'].get('event_times', None)
 
-    trn_y = torch.tensor(dataset['trn']['labels'][:, :, :], dtype=torch.float32)  # [B,N]
-    val_y = torch.tensor(dataset['val']['labels'][:, :, :], dtype=torch.float32)
-    tst_y = torch.tensor(dataset['tst']['labels'][:, :, :], dtype=torch.float32)
-
-    print("Before:")
-    print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
-    # print(f"{trn_y[:,0,:,:]}")
+    # trn_y = torch.tensor(dataset['trn']['labels'], dtype=torch.float32)  # [B,N]
+    # val_y = torch.tensor(dataset['val']['labels'], dtype=torch.float32)
+    # tst_y = torch.tensor(dataset['tst']['labels'], dtype=torch.float32)
+    # print("Before:")
+    # print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
 
     trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)  # [B,N]
     val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
     tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32)
-    print(trn_y.nonzero())
-
-    print("After:")
-    print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
+    # print("After:")
+    # print(f"Training samples: {trn_y.shape}, Validation samples: {val_y.shape}, Test samples: {tst_y.shape}")
 
    # Define the model
     if SELECTED_MODEL == "parametric_gtcnn":
@@ -170,11 +164,16 @@ def main():
         ).to(device)
 
     # Model-specific reshaping
-    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline", "parametric_gtcnn_event"]:
+    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
         # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
         trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
         val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
         tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
+    elif SELECTED_MODEL in ["parametric_gtcnn_event"]:
+        # [B,N,T,F] -> [B,F,N,T]
+        trn_X = trn_X.permute(0, 3, 1, 2)
+        val_X = val_X.permute(0, 3, 1, 2)
+        tst_X = tst_X.permute(0, 3, 1, 2)
     elif SELECTED_MODEL in ["vanilla_gcnn"]:
         # [B,N,T,F] -> [B,N,F*T]
         trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3) # TODO: check if this is correct
@@ -189,11 +188,11 @@ def main():
     batch_size = 64
 
     loss_criterion = torch.nn.BCEWithLogitsLoss()
-    # loss_criterion = torch.nn.MSELoss()
 
-    training_start = time.time()
     # Training loop
+    training_start = time.time()
     print("Training starts with model:", SELECTED_MODEL)
+
     best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
         model,
         model_name=SELECTED_MODEL,
@@ -211,7 +210,7 @@ def main():
         trn_event_times=trn_evt,       # pass event times (numpy) to train
         val_event_times=val_evt        # pass event times (numpy) to val
     )
-
+    
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
 
