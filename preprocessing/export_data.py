@@ -39,7 +39,7 @@ def export_distance_matrix(
     return A
 
 
-def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"):
+def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/timeseries_data.npy"):
     import json
     from pathlib import Path
 
@@ -52,29 +52,34 @@ def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"
 
     # Aggregate to get 1 row per (node_id, DAY)
     key = ["node_id", "DAY"]
-    value_cols = [c for c in long.columns if c not in key]
-
-    sum_cols = {"prcp", "fire_intensity", "30DAYS", "7DAYS"}
-    max_cols = {"has_fire", "FireSeason"}
-    mean_cols = {"tavg", "tmin", "tmax", "wspd", "pres"}
-
-    agg = {}
-    for c in value_cols:
-        if c in sum_cols:
-            agg[c] = "sum"
-        elif c in max_cols:
-            agg[c] = "max"
-        elif c in mean_cols:
-            agg[c] = "mean"
-        else:
-            agg[c] = "first"
 
     pre_counts = long.groupby(key, as_index=False).size()
     collisions = int((pre_counts["size"] > 1).sum())
     print(f"[diagnostics] rows={len(long)}, unique pairs={len(pre_counts)}, collisions={collisions}")
 
-    # Collapse duplicates
-    long = long.groupby(key, as_index=False).agg(agg)
+    # Collapse Duplicates
+    collapse_cache = Path("data/collapsed_long.pkl")
+    if collapse_cache.exists() and not reconstruct:
+        long = pd.read_pickle(collapse_cache)
+    else:
+        value_cols = [c for c in long.columns if c not in key]
+        sum_cols = {"prcp", "fire_intensity", "30DAYS", "7DAYS"}
+        max_cols = {"has_fire", "FireSeason"}
+        mean_cols = {"tavg", "tmin", "tmax", "wspd", "pres"}
+
+        agg = {}
+        for c in value_cols:
+            if c in sum_cols:
+                agg[c] = "sum"
+            elif c in max_cols:
+                agg[c] = "max"
+            elif c in mean_cols:
+                agg[c] = "mean"
+            else:
+                agg[c] = "first"
+
+        long = long.groupby(key, as_index=False).agg(agg)
+        long.to_pickle(collapse_cache)
 
     # Create the rectangular panel
     nodes = np.sort(long["node_id"].unique())
@@ -86,9 +91,10 @@ def construct_timeseries_data(graphs: list, save_path="data/timeseries_data.npy"
                          "AGRIAREAS", "ARTIFSURF", "OTHERLC", "PERCNA2K", "dist_to_water"}
     static_cols = [c for c in panel.columns if c in static_candidates]
     if static_cols:
-        panel[static_cols] = panel.groupby(level=0)[static_cols].ffill().bfill()
-
-    print(panel[static_cols].dtypes)
+        filled = panel.groupby(level=0)[static_cols].ffill().bfill()
+    for c in static_cols:
+        panel[c] = pd.to_numeric(filled[c], errors='ignore')
+        print(panel[c])
     # Keep only the numeric columns
     num_panel = panel.select_dtypes(include=[np.number, "bool"]).copy()
     bool_cols = list(num_panel.select_dtypes(include=["bool"]).columns)
