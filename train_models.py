@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import scipy.sparse as sp
 
+from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
@@ -10,10 +11,16 @@ from utils.train_utils import train_model, train_mode_clusterGCN, make_graph_clu
 from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph
 
-MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn"]
+MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
 SELECTED_MODEL = MODEL_NAMES[0] # choose model here
 
 def main():
+    # Load timeline and create per-window event times (length = obs_window)
+    days = np.load("data/days.npy")
+    
+    # sanity check
+    assert np.all((days[1:] - days[:-1]) >= np.timedelta64(0, 'ns')), "days must be non-decreasing"
+
     # Load the dataset 
     timeseries_data = np.load(file='data/timeseries_data.npy')
 
@@ -28,6 +35,7 @@ def main():
     print(f"split: {splits}, pred_horizon: {pred_horizon}, obs_window: {obs_window}")
     print(f"The dataset contains {n_timestamps} measurements over {n_stations} stations.")
 
+    timeseries_data = timeseries_data[:,:,0] # for testing
     # shapes: timeseries_data -> (N_nodes, T_time)
     assert timeseries_data.ndim == 2, "timeseries_data must be 2D (nodes x time)"
 
@@ -47,7 +55,9 @@ def main():
         splits=splits,
         pred_horizon=pred_horizon,
         obs_window=obs_window,
-        in_sample_mean=False
+        in_sample_mean=False,
+        days=days,
+        return_event_times=True   # needed for the event-based GTCNN model
     )
 
     # Load the distance matrix
@@ -66,40 +76,45 @@ def main():
     density = A.nnz / (N*(N-1))
     print(f"[Graph] N={N}, edges={A.nnz//2} (undirected), density={density:.6f}")
 
-    # Sanity checks:
-    # 1. verify node order matches our time series rows
+    # Sanity checks
     assert A.shape[0] == timeseries_data.shape[0]
-
-    # 2. verify node order matches our saved node order
     try:
         node_order = np.load("data/node_order.npy", allow_pickle=True)
         assert A.shape[0] == node_order.shape[0] == timeseries_data.shape[0], \
             "Mismatch among A, node_order, timeseries_data shapes."
     except FileNotFoundError:
-        # ok if you didn’t save it; shapes still must match
-        assert A.shape[0] == timeseries_data.shape[0], "A rows must equal timeseries nodes."
-
-    # 3. verify sparsity
-    assert sp.isspmatrix_csr(A), "Adjacency must be CSR (convert with .tocsr())."
-    assert A.shape == (N, N), "Adjacency must be square NxN."
-
-    # 4. verify zero diagonals
+        pass
+    assert sp.isspmatrix_csr(A)
+    assert A.shape == (N, N)
     A_sym_diff = (A - A.T)
-    assert A_sym_diff.nnz == 0 or float(A_sym_diff.power(2).sum()) < 1e-12, "Adjacency must be symmetric."
-    assert A.diagonal().sum() == 0, "Adjacency should have zero diagonal (no self-loops here)."
+    assert A_sym_diff.nnz == 0 or float(A_sym_diff.power(2).sum()) < 1e-12
+    assert A.diagonal().sum() == 0
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Define the model
+    # Prepare the data for training
+    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)   # [B,N,T]
+    val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
+    tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
+
+    trn_evt = dataset['trn'].get('event_times', None)   # numpy [B, T]
+    val_evt = dataset['val'].get('event_times', None)
+    tst_evt = dataset['tst'].get('event_times', None)
+
+    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)  # [B,N]
+    val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
+    tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32)
+
+   # Define the model
     if SELECTED_MODEL == "parametric_gtcnn":
         model = ParametricGTCNN(
-            S_spatial=A, 
-            T=obs_window, 
+            S_spatial=A,
+            T=obs_window,
             F_in=1,
-            hidden_dims=(64,64), 
-            K=2, 
+            hidden_dims=(64,64),
+            K=2,
             pool="mean",
-            init_s=(0.0, 1.0, 1.0, 0.0),      # start as Cartesian; it can learn toward Strong/Kronecker
+            init_s=(0.0, 1.0, 1.0, 0.0),
             device=device
         ).to(device)
 
@@ -111,10 +126,10 @@ def main():
             spatial_hidden=(64, 64),
             temporal_hidden=64,
             K=2,
-            order="ST",          # or "TS" to flip the processing order
+            order="ST",
             device=device
         ).to(device)
-    
+
     elif SELECTED_MODEL == "vanilla_gcnn":
         model = VanillaGCN(
             S_spatial=A,
@@ -125,23 +140,27 @@ def main():
             dropout=0.1
         ).to(device)
 
-    # Prepare the data for training (model-specific reshaping is done in train_model)
-    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)               # [B,N,T]
-    val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
-    tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
-    trn_y = torch.tensor(dataset['trn']['labels'][:, :, 0], dtype=torch.float32)    # [B,N]
-    val_y = torch.tensor(dataset['val']['labels'][:, :, 0], dtype=torch.float32)
-    tst_y = torch.tensor(dataset['tst']['labels'][:, :, 0], dtype=torch.float32) 
+    elif SELECTED_MODEL == "parametric_gtcnn_event":
+        # If you updated the class to take obs_window (recommended):
+        model = ParametricGTCNN_Event(
+            S_spatial=A,
+            obs_window=obs_window,
+            F_in=1, hidden_dims=(64,64), K=2, pool="mean",
+            init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
+            device=device
+        ).to(device)
+        # Event model expects [B,1,N,T]
+        trn_X = trn_X.unsqueeze(1)
+        val_X = val_X.unsqueeze(1)
+        tst_X = tst_X.unsqueeze(1)
 
-    # Train with L1 on s_* (γ>0), using your revised loop
+    # Train config
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+    num_epochs = 1
+    batch_size = 64
 
-    # Configure training parameters
-    num_epochs = 5
-    batch_size = 16 # we do not want too large batches
-    # loss_criterion = torch.nn.MSELoss()
     loss_criterion = torch.nn.BCEWithLogitsLoss()
 
     # Training loop
@@ -159,7 +178,10 @@ def main():
     #     val_metric_criterion=None,
     #     log_dir=f"./runs/{SELECTED_MODEL}",
     #     not_learning_limit=15,
-    #     gamma=gamma 
+    #     gamma=gamma,
+        # trn_event_times=trn_evt,       # pass event times (numpy) to train
+        # val_event_times=val_evt        # pass event times (numpy) to val
+    )
     # )
     # training_end = time.time()
     # print(f"Training took {training_end - training_start} seconds.")
@@ -167,8 +189,10 @@ def main():
     # Training using ClusterGCN
     clusters = make_graph_clusters(A, num_clusters=150)
     training_start = time.time()
-    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_mode_clusterGCN(
-        model=model,
+    # Training loop
+    print("Training starts with model:", SELECTED_MODEL)
+    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
+        model,
         model_name=SELECTED_MODEL,
         training_data=trn_X.to(device),
         validation_data=val_X.to(device),
@@ -184,7 +208,9 @@ def main():
         val_metric_criterion=None,
         log_dir=f"./runs/{SELECTED_MODEL}",
         not_learning_limit=15,
-        gamma=gamma
+        gamma=gamma,
+        trn_event_times=trn_evt,       # pass event times (numpy) to train
+        val_event_times=val_evt        # pass event times (numpy) to val
     )
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
@@ -199,7 +225,12 @@ def main():
     # else: for vanilla gcnn, no reshaping needed
 
     # Evaluate the best model on the test set
-    metrics = evaluate_model(best_model, tst_X, tst_y, loss_criterion)
+    metrics = evaluate_model(
+        best_model, tst_X, tst_y, loss_criterion,
+        apply_sigmoid=True,            # True for BCE/logits; False for regression heads
+        chunk_size=256,
+        event_times=tst_evt            # pass event times (numpy) to test
+    )
 
     print("Test set metrics:")
     for key, value in metrics.items():
