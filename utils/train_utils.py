@@ -2,6 +2,7 @@ import time
 import torch
 import numpy as np
 from tensorboardX import SummaryWriter
+from typing import Optional
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -19,10 +20,13 @@ def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
 
 def perform_chunk_predictions(model: torch.nn.Module,
                               data: torch.Tensor,
-                              chunk_size: int = 300) -> torch.Tensor:
+                              chunk_size: int = 300,
+                              event_times: Optional[np.ndarray] = None) -> torch.Tensor:
     """
-    Generic chunked inference.
-    Accepts data shaped [B, F, N*T] or [B, F, N, T]; returns [B, N].
+    Runs forward passes in chunks to obtain predictions for the whole set.
+    If `event_times` (numpy [B, T]) is provided, it will be sliced per chunk and
+    passed to event-based models via `event_times_batch=...`.
+    Returns a tensor of shape [B, N].
     """
     model.eval()
     device = next(model.parameters()).device
@@ -33,19 +37,31 @@ def perform_chunk_predictions(model: torch.nn.Module,
         for start in range(0, n_samples, chunk_size):
             end = min(start + chunk_size, n_samples)
             batch_x = data[start:end].to(device, non_blocking=True)
-            pred = model(batch_x)            # -> [batch, N]
-            preds.append(pred)
 
-    return torch.cat(preds, dim=0)
+            evt_batch = None
+            if event_times is not None:
+                evt_batch = event_times[start:end]  # keep numpy
+
+            if "event" in model.__class__.__name__.lower():
+                batch_pred = model(batch_x, event_times_batch=evt_batch)  # [b, N]
+            else:
+                batch_pred = model(batch_x)                                # [b, N]
+
+            preds.append(batch_pred.detach().cpu())
+
+    return torch.cat(preds, dim=0) if preds else torch.empty(0)
 
 
 def compute_loss_in_chunks(model: torch.nn.Module,
                            data: torch.Tensor,
                            labels: torch.Tensor,
                            criterion,
-                           chunk_size: int = 300) -> float:
+                           chunk_size: int = 300,
+                           event_times: np.ndarray | None = None) -> float:
     """
-    Computes validation loss in chunks to save memory.
+    Computes validation/test loss in chunks to save memory.
+    If `event_times` is provided (numpy array shaped [B, T]), it will be sliced
+    per chunk and passed to event-based models via `event_times_batch=...`.
     Returns a float (rounded to 3 decimals) for logging/scheduling.
     """
     model.eval()
@@ -56,11 +72,23 @@ def compute_loss_in_chunks(model: torch.nn.Module,
     with torch.no_grad():
         for start in range(0, n_samples, chunk_size):
             end = min(start + chunk_size, n_samples)
+
             batch_x = data[start:end].to(device, non_blocking=True)
             batch_y = labels[start:end].to(device, non_blocking=True)
-            pred = model(batch_x)            # -> [batch, N]
+
+            # Slice per-chunk event times (keep as numpy for the model helper)
+            evt_batch = None
+            if event_times is not None:
+                evt_batch = event_times[start:end]
+
+            # Call the right forward signature
+            if "event" in model.__class__.__name__.lower():
+                pred = model(batch_x, event_times_batch=evt_batch)   # -> [batch, N]
+            else:
+                pred = model(batch_x)                                # -> [batch, N]
+
             loss = criterion(pred, batch_y)
-            losses.append(loss.item())
+            losses.append(float(loss.item()))
             
             # Debug block
             # print("Loss computations:")
@@ -79,7 +107,10 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
                            loss_criterion, optimizer, scheduler,
                            val_metric_criterion,
                            log_dir, not_learning_limit,
-                           gamma: float = 0.0):   # defines L1 weight on s_*
+                           gamma: float = 0.0,   # defines L1 weight on s_*
+                           trn_event_times=None,
+                           val_event_times=None
+):
     """
     If gamma>0, trains with: J = MSE + gamma * ||s||_1, where s are model params named 's_*'.
     Validation uses plain MSE for fair model selection.
@@ -113,11 +144,19 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             print(f"Batch: {int(batch_idx/batch_size)}")
 
             batch_indices = permutation[batch_idx:batch_idx + batch_size]
-            batch_trn_data = training_data[batch_indices, :, :]
+            batch_trn_data = training_data[batch_indices]
             batch_one_step_trn_labels = single_step_trn_labels[batch_indices]
 
-            # For SimpleGTCNN, it uses the same data for all time steps
-            one_step_pred_trn = model(batch_trn_data)
+            evt_batch = None
+            if trn_event_times is not None:
+                # trn_event_times is numpy [B, T]
+                evt_batch = trn_event_times[batch_indices.cpu().numpy()]
+
+            if "event" in model.__class__.__name__.lower():
+                one_step_pred_trn = model(batch_trn_data, event_times_batch=evt_batch)
+            else:
+                # For SimpleGTCNN, it uses the same data for all time steps
+                one_step_pred_trn = model(batch_trn_data)
             print(f"Prediction done.")
 
             # Loss: base MSE + gamma * ||s||_1 (if any s_* exist)
@@ -138,7 +177,9 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
 
         # Validation: MSE only (no L1) for fair comparison/early stopping
         def _val_mse(crit):
-            return compute_loss_in_chunks(model, validation_data, single_step_val_labels, crit)
+            return compute_loss_in_chunks(model, validation_data, single_step_val_labels, crit,
+                                          event_times=val_event_times,  
+                                          chunk_size=batch_size)        
 
         val_loss = _val_mse(loss_criterion)
         val_loss_per_epoch.append(val_loss)
@@ -193,7 +234,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             epoch_best = checkpoint_best['epoch']
             model.eval()
             print(f"Best model was at epoch: {epoch_best}")
-            return model, epoch_best
+            return model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch
 
     print("Training is finished.")
     tensorboard.close()
