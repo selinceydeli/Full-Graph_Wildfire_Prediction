@@ -39,7 +39,7 @@ def export_distance_matrix(
     return A
 
 
-def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/timeseries_data.npy"):
+def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/timeseries_data.npy", label_col="has_fire"):
     import json
     from pathlib import Path
 
@@ -52,6 +52,7 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
 
     # Aggregate to get 1 row per (node_id, DAY)
     key = ["node_id", "DAY"]
+    value_cols = [c for c in long.columns if c not in key]
 
     pre_counts = long.groupby(key, as_index=False).size()
     collisions = int((pre_counts["size"] > 1).sum())
@@ -109,15 +110,21 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
     N, T = len(nodes), len(days)
     assert num_panel.shape[0] == N * T, f"Rectangularity failed: {num_panel.shape[0]} != {N * T}"
 
-    feat_cols = list(num_panel.columns)
-    X = num_panel.to_numpy(dtype=float).reshape(N, T, len(feat_cols))
+    all_cols = list(num_panel.columns)
+    if label_col not in all_cols:
+        raise ValueError(f"{label_col} not in {all_cols}")
+    feat_cols = [c for c in all_cols if c != label_col]
+
+    X = num_panel[feat_cols].to_numpy(dtype=float).reshape(N, T, len(feat_cols))
+    y = num_panel[label_col].to_numpy(dtype=float).reshape(N, T)
 
     Path("data").mkdir(parents=True, exist_ok=True)
     np.save(save_path, X)
+    np.save("data/labels.npy", y)
     np.save("data/nodes.npy", nodes)
     np.save("data/days.npy", days)
     with open("data/feat_cols.json", "w") as f:
         json.dump(feat_cols, f)
 
     print(f"Saved timeseries to {save_path} with shape {X.shape} (N={N}, T={T}, M={len(feat_cols)})")
-    return X, nodes, days, feat_cols
+    return X, y, nodes, days, feat_cols
