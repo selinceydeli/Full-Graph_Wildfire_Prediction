@@ -5,6 +5,7 @@ import numpy as np
 import scipy.sparse as sp
 from datetime import datetime
 import torch
+from sklearn.cluster import SpectralClustering
 
 # --- Helper methods for sparse tensor conversion ---
 def scipy_to_torch_sparse(A: sp.spmatrix, device=None) -> torch.Tensor:
@@ -263,3 +264,18 @@ def plot_losses(trn_losses, val_losses, best_epoch=None, loss_name="BCE",title="
     print(f"Saved loss plot to: {save_path}")
     return save_path
 
+# --- Clustering ---
+
+def cluster_graph(A: sp.spmatrix, num_clusters: int = 50):
+    """
+    Cluster the graph using spectral clustering.
+    inputs:
+        A: Sparse adjacency matrix of the graph to be clustered
+        num_clusters: Number of clusters to form
+    outputs:
+        labels: Cluster labels for each node
+    """
+    sc = SpectralClustering(n_clusters=num_clusters, affinity='precomputed')
+    sc.fit_predict(A)
+    clustering_labels = sc.labels_
+    return clustering_labels

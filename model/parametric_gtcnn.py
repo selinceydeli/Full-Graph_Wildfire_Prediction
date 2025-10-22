@@ -91,8 +91,34 @@ class ParametricGTCNN(nn.Module):
             raise ValueError("Expected x with 3 or 4 dims: [B,F,N*T] or [B,F,N,T]")
         return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * self.N, self.F_in)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def overwrite_adj_matrix(self, adj_matrix):
+        # Define base graphs
+        S = to_csr(adj_matrix)
+
+        N = S.shape[0]
+        self.N = N
+
+        S_T = time_chain_adjacency(self.T)
+
+        I_T = sp.eye(self.T, format='csr'); I_N = sp.eye(self.N, format='csr')
+
+        # Define Kronecker blocks
+        K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr'))           # I ⊗ I
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S, format='csr'))           # I ⊗ S
+        K10 = scipy_to_torch_sparse(sp.kron(S_T, I_N, format='csr'))           # S_T ⊗ I
+        K11 = scipy_to_torch_sparse(sp.kron(S_T, S, format='csr'))           # S_T ⊗ S
+
+        self.register_buffer("K00", K00.coalesce())
+        self.register_buffer("K01", K01.coalesce())
+        self.register_buffer("K10", K10.coalesce())
+        self.register_buffer("K11", K11.coalesce())
+
+    def forward(self, x: torch.Tensor, adj_matrix: torch.Tensor = None) -> torch.Tensor:
         B = x.size(0)
+
+        if adj_matrix != None:
+            self.overwrite_adj_matrix(adj_matrix)
+
         X_prod = self._reshape_to_product_nodes(x)         # [B, T*N, F]
         A_hat = self._current_A_hat()                      # sparse [T*N, T*N], same for all items
 
