@@ -26,8 +26,8 @@ def main():
     timeseries_labels = np.load(file='data/labels.npy')   # shape: (N_stations, T_timestamps)
 
     # Define the parameters
-    splits = [0.6, 0.2, 0.2]
-    # splits = [0.1, 0.1, 0.8] # for quick testing
+    # splits = [0.6, 0.2, 0.2]
+    splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_features.shape[0]
@@ -164,8 +164,8 @@ def main():
     if SELECTED_MODEL in ["parametric_gtcnn"]:
         # [B,N,T,F] -> [B,F,N,T]
         trn_X = trn_X.permute(0, 3, 1, 2)
-        val_X = val_X.permute(0, 3, 1, 2)
-        tst_X = tst_X.permute(0, 3, 1, 2)
+        val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
     elif SELECTED_MODEL in ["disjoint_st_baseline"]:
         # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
         trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
@@ -195,7 +195,7 @@ def main():
     training_start = time.time()
     print("Training starts with model:", SELECTED_MODEL)
 
-    clustering = False
+    clustering = True
     if clustering:
         best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model_clustering(
             model=model,
