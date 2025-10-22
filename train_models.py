@@ -217,7 +217,6 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         raise NotImplementedError("No other loss functions")
 
     
-
     # Training loop
     training_start = time.time()
     print("Training starts with model:", selected_model)
