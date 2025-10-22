@@ -169,8 +169,33 @@ class ParametricGTCNN_Event(nn.Module):
             raise ValueError("Expected x with 3 or 4 dims.")
         return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * self.N, self.F_in)
 
+    def overwrite_adj_matrix(self, adj_matrix):
+
+        # Spatial graph 
+        S = to_csr(adj_matrix)
+        self.N = int(S.shape[0])
+        self.S_spatial_csr = S
+
+        # Fixed Kronecker blocks (do not depend on per-window event times)
+        I_T = sp.eye(self.T, format='csr')
+        I_N = sp.eye(self.N, format='csr')
+
+        K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr')).coalesce()
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S,    format='csr')).coalesce()
+
+        self.register_buffer("K00", K00)
+        self.register_buffer("K01", K01)
+
+        # Placeholders for temporal blocks; they will be updated per sample
+        # Initialize with a trivial evenly spaced window just so buffers exist
+        init_evt = np.arange(self.T, dtype=float)
+        K10, K11 = self._build_temporal_blocks(init_evt)
+        self.register_buffer("K10", K10)
+        self.register_buffer("K11", K11)
+
+
     # ---- forward (now accepts per-batch event times) ----
-    def forward(self, x: torch.Tensor, event_times_batch=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, event_times_batch=None, adj_matrix: torch.Tensor = None) -> torch.Tensor:
         """
         x: [B, F=1, N, T] (preferred) or [B, F=1, N*T]
         event_times_batch: None or numpy array of shape [B, T] (float days, non-decreasing per row)
@@ -182,6 +207,10 @@ class ParametricGTCNN_Event(nn.Module):
         for b in range(B):
             if event_times_batch is not None:
                 self._set_event_times_for_sample(event_times_batch[b])
+            
+            if adj_matrix:
+                self.overwrite_adj_matrix(adj_matrix)
+                
             A_hat = self._current_A_hat()
 
             H = X_prod[b]

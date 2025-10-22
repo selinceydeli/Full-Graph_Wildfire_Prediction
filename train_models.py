@@ -7,12 +7,12 @@ from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
 from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model
+from utils.train_utils import train_model, train_model_clustering
 from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
-SELECTED_MODEL = MODEL_NAMES[2] # choose model here
+SELECTED_MODEL = MODEL_NAMES[0] # choose model here
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -161,7 +161,12 @@ def main():
         ).to(device)
 
     # Model-specific reshaping
-    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
+    if SELECTED_MODEL in ["parametric_gtcnn"]:
+        # [B,N,T,F] -> [B,F,N,T]
+        trn_X = trn_X.permute(0, 3, 1, 2)
+        val_X = val_X.permute(0, 3, 1, 2)
+        tst_X = tst_X.permute(0, 3, 1, 2)
+    elif SELECTED_MODEL in ["disjoint_st_baseline"]:
         # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
         trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
         val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
@@ -181,7 +186,7 @@ def main():
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    num_epochs = 50
+    num_epochs = 1 # 50
     batch_size = 16
 
     loss_criterion = torch.nn.BCEWithLogitsLoss()
@@ -190,24 +195,47 @@ def main():
     training_start = time.time()
     print("Training starts with model:", SELECTED_MODEL)
 
-    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
-        model,
-        model_name=SELECTED_MODEL,
-        training_data=trn_X.to(device),
-        validation_data=val_X.to(device),
-        single_step_trn_labels=trn_y.to(device),
-        single_step_val_labels=val_y.to(device),
-        num_epochs=num_epochs, batch_size=batch_size,
-        loss_criterion=loss_criterion,
-        optimizer=optimizer, scheduler=scheduler,
-        val_metric_criterion=None,
-        log_dir=f"./runs/{SELECTED_MODEL}",
-        not_learning_limit=15,
-        gamma=gamma,
-        trn_event_times=trn_evt,       # pass event times (numpy) to train
-        val_event_times=val_evt        # pass event times (numpy) to val
-    )
-    
+    clustering = False
+    if clustering:
+        best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model_clustering(
+            model=model,
+            model_name=SELECTED_MODEL,
+            S_spatial=A,
+            training_data=trn_X.to(device),
+            validation_data=val_X.to(device),
+            single_step_trn_labels=trn_y.to(device),
+            single_step_val_labels=val_y.to(device),
+            num_epochs=num_epochs,
+            batch_size=batch_size,
+            num_clusters=50,
+            loss_criterion=loss_criterion,
+            optimizer=optimizer, scheduler=scheduler,
+            val_metric_criterion=None,
+            log_dir=f"./runs/{SELECTED_MODEL}",
+            not_learning_limit=15,
+            gamma=gamma,
+            trn_event_times=trn_evt,       # pass event times (numpy) to train
+            val_event_times=val_evt        # pass event times (numpy) to val
+        )
+    else:
+        best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
+            model = model,
+            model_name=SELECTED_MODEL,
+            training_data=trn_X.to(device),
+            validation_data=val_X.to(device),
+            single_step_trn_labels=trn_y.to(device),
+            single_step_val_labels=val_y.to(device),
+            num_epochs=num_epochs, batch_size=batch_size,
+            loss_criterion=loss_criterion,
+            optimizer=optimizer, scheduler=scheduler,
+            val_metric_criterion=None,
+            log_dir=f"./runs/{SELECTED_MODEL}",
+            not_learning_limit=15,
+            gamma=gamma,
+            trn_event_times=trn_evt,       # pass event times (numpy) to train
+            val_event_times=val_evt        # pass event times (numpy) to val
+        )
+
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
 
