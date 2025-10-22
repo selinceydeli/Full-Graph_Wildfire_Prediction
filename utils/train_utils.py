@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from tensorboardX import SummaryWriter
 from typing import Optional
+from tqdm import tqdm 
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -127,15 +128,13 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
         f"({n_trn_samples} trn samples in total | batch_size: {batch_size})")
 
     not_learning_count = 0
-    for epoch in range(num_epochs):
-        print(f"\nEpoch: {epoch}")
+    for epoch in tqdm(range(num_epochs)):
 
         permutation = torch.randperm(n_trn_samples)  # shuffle the training data
         batch_losses = []
 
         model.train()
-        for batch_idx in range(0, n_trn_samples, batch_size):
-            print(f"Batch: {int(batch_idx/batch_size)}")
+        for batch_idx in tqdm(range(0, n_trn_samples, batch_size)):
 
             batch_indices = permutation[batch_idx:batch_idx + batch_size]
             batch_trn_data = training_data[batch_indices]
@@ -151,7 +150,6 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             else:
                 # For SimpleGTCNN, it uses the same data for all time steps
                 one_step_pred_trn = model(batch_trn_data)
-            print(f"Prediction done.")
 
             # Loss: base MSE + gamma * ||s||_1 (if any s_* exist)
             base = loss_criterion(one_step_pred_trn, batch_one_step_trn_labels)
@@ -160,9 +158,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             batch_losses.append(batch_trn_loss.item())
 
             optimizer.zero_grad()
-            print(f"Ready to backprop...")
             batch_trn_loss.backward()
-            print(f"Backprop done.")
             optimizer.step()
 
         epoch_trn_loss = float(np.mean(batch_losses))
