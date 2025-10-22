@@ -75,7 +75,7 @@ class ParametricGTCNN_Event(nn.Module):
 
         # Spatial graph 
         S = to_csr(S_spatial)
-        self.N = int(S.shape[0])
+        N = int(S.shape[0])
         self.S_spatial_csr = S
 
         # Temporal window length (fixed for this dataset)
@@ -83,7 +83,7 @@ class ParametricGTCNN_Event(nn.Module):
 
         # Fixed Kronecker blocks (do not depend on per-window event times)
         I_T = sp.eye(self.T, format='csr')
-        I_N = sp.eye(self.N, format='csr')
+        I_N = sp.eye(N, format='csr')
 
         K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr')).coalesce()
         K01 = scipy_to_torch_sparse(sp.kron(I_T, S,    format='csr')).coalesce()
@@ -94,7 +94,7 @@ class ParametricGTCNN_Event(nn.Module):
         # Placeholders for temporal blocks; they will be updated per sample
         # Initialize with a trivial evenly spaced window just so buffers exist
         init_evt = np.arange(self.T, dtype=float)
-        K10, K11 = self._build_temporal_blocks(init_evt)
+        K10, K11 = self._build_temporal_blocks(init_evt, N=N, S_spatial=S)
         self.register_buffer("K10", K10)
         self.register_buffer("K11", K11)
 
@@ -113,7 +113,7 @@ class ParametricGTCNN_Event(nn.Module):
         self.head = nn.Linear(dims[-1], 1)
 
     # ---- temporal blocks (re)builder + small cache ----
-    def _build_temporal_blocks(self, event_times_np: np.ndarray):
+    def _build_temporal_blocks(self, event_times_np: np.ndarray, N: int = None, S_spatial: sp.spmatrix = None):
         """Build K10, K11 for given event_times (length = self.T)."""
         # enforce relative times; absolute offset irrelevant
         et = np.asarray(event_times_np, dtype=float)
@@ -124,22 +124,28 @@ class ParametricGTCNN_Event(nn.Module):
                                             max_back_hops=self.max_back_hops,
                                             kernel=self.kernel,
                                             tau=self.tau)
-        I_N = sp.eye(self.N, format='csr')
+
+        I_N = sp.eye(N, format='csr')
+        S_spatial_csr = S_spatial
+
+
         K10 = scipy_to_torch_sparse(sp.kron(S_T_evt, I_N,               format='csr')).coalesce().to(self.device)
-        K11 = scipy_to_torch_sparse(sp.kron(S_T_evt, self.S_spatial_csr, format='csr')).coalesce().to(self.device)
+        K11 = scipy_to_torch_sparse(sp.kron(S_T_evt, S_spatial_csr, format='csr')).coalesce().to(self.device)
         return K10, K11
 
-    @lru_cache(maxsize=1024)
-    def _cached_temporal_blocks(self, key: tuple):
-        et = np.array(key, dtype=float)
-        return self._build_temporal_blocks(et)
+    # @lru_cache(maxsize=1024)
+    # def _cached_temporal_blocks(self, key: tuple, N: int = None, S_spatial: sp.spmatrix = None):
+    #     et = np.array(key, dtype=float)
+    #     return self._build_temporal_blocks(et, N=N, S_spatial=S_spatial)
 
-    def _set_event_times_for_sample(self, event_times_np: np.ndarray):
+    def _set_event_times_for_sample(self, event_times_np: np.ndarray, N: int = None, S_spatial: sp.spmatrix = None):
         # Cache key: use rounded relative times for stability
         et = np.asarray(event_times_np, dtype=float)
         et = et - et[0]
         key = tuple(np.round(et, 6))  # 1e-6 days ≈ 0.0864 seconds
-        K10, K11 = self._cached_temporal_blocks(key)
+        # K10, K11 = self._cached_temporal_blocks(key, N=N, S_spatial=S_spatial)
+        et = np.array(key, dtype=float) 
+        K10, K11 = self._build_temporal_blocks(et, N=N, S_spatial=S_spatial)
         self.K10 = K10
         self.K11 = K11
 
@@ -154,72 +160,80 @@ class ParametricGTCNN_Event(nn.Module):
         # Row-normalization suits directed time edges
         return torch_sparse_row_norm(A)
 
-    def _reshape_to_product_nodes(self, x: torch.Tensor) -> torch.Tensor:
+    def _reshape_to_product_nodes(self, x: torch.Tensor, N: int) -> torch.Tensor:
         """
         Accept [B,F,N,T] or [B,F,N*T]; return [B, T*N, F]
         """
         if x.dim() == 3:
             B, F, NT = x.shape
-            assert F == self.F_in and NT == self.N * self.T
-            x = x.view(B, F, self.N, self.T)
+            assert F == self.F_in and NT == N * self.T
+            x = x.view(B, F, N, self.T)
         elif x.dim() == 4:
             B, F, N, T = x.shape
-            assert (F, N, T) == (self.F_in, self.N, self.T)
+            assert (F, N, T) == (self.F_in, N, self.T)
         else:
             raise ValueError("Expected x with 3 or 4 dims.")
-        return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * self.N, self.F_in)
+        return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * N, self.F_in)
 
-    def overwrite_adj_matrix(self, adj_matrix):
+    def _current_A_hat_subgraph(self, adj_matrix):
 
         # Spatial graph 
         S = to_csr(adj_matrix)
-        self.N = int(S.shape[0])
-        self.S_spatial_csr = S
+        N = int(S.shape[0])
 
         # Fixed Kronecker blocks (do not depend on per-window event times)
         I_T = sp.eye(self.T, format='csr')
-        I_N = sp.eye(self.N, format='csr')
+        I_N = sp.eye(N, format='csr')
 
         K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr')).coalesce()
         K01 = scipy_to_torch_sparse(sp.kron(I_T, S,    format='csr')).coalesce()
 
-        self.register_buffer("K00", K00)
-        self.register_buffer("K01", K01)
-
         # Placeholders for temporal blocks; they will be updated per sample
         # Initialize with a trivial evenly spaced window just so buffers exist
         init_evt = np.arange(self.T, dtype=float)
-        K10, K11 = self._build_temporal_blocks(init_evt)
-        self.register_buffer("K10", K10)
-        self.register_buffer("K11", K11)
+        K10, K11 = self._build_temporal_blocks(init_evt, N=N, S_spatial=S)
+
+        # Nonnegative mix of the four Kronecker blocks
+        s00 = torch.relu(self.s_00)
+        s01 = torch.relu(self.s_01)
+        s10 = torch.relu(self.s_10)
+        s11 = torch.relu(self.s_11)
+
+        A_hat = (s00 * K00) + (s01 * K01) + (s10 * K10) + (s11 * K11)
+        return torch_sparse_row_norm(A_hat)
 
 
     # ---- forward (now accepts per-batch event times) ----
-    def forward(self, x: torch.Tensor, event_times_batch=None, adj_matrix: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, adj_matrix: torch.Tensor = None, event_times_batch=None) -> torch.Tensor:
         """
         x: [B, F=1, N, T] (preferred) or [B, F=1, N*T]
         event_times_batch: None or numpy array of shape [B, T] (float days, non-decreasing per row)
         """
+
         B = x.size(0)
-        X_prod = self._reshape_to_product_nodes(x)  # [B, T*N, F]
+
+        if adj_matrix != None:
+            A_hat = self._current_A_hat_subgraph(adj_matrix)
+            N = adj_matrix.shape[0]
+        else:
+            A_hat = self._current_A_hat()
+            N = A_hat.size(0) // self.T
+            adj_matrix = self.S_spatial_csr
+
+        X_prod = self._reshape_to_product_nodes(x, N=N)  # [B, T*N, F]
         outs = []
 
         for b in range(B):
             if event_times_batch is not None:
-                self._set_event_times_for_sample(event_times_batch[b])
+                self._set_event_times_for_sample(event_times_batch[b], N=N, S_spatial=adj_matrix)
             
-            if adj_matrix:
-                self.overwrite_adj_matrix(adj_matrix)
-                
-            A_hat = self._current_A_hat()
-
             H = X_prod[b]
             for layer in self.layers:
                 H = layer(H, A_hat)
                 H = self.act(H)
                 H = self.dropout(H)
 
-            H = H.view(self.T, self.N, -1)                # [T, N, C]
+            H = H.view(self.T, N, -1)                # [T, N, C]
             H_pool = H.mean(dim=0) if self.pool == "mean" else H[-1]
             y_hat = self.head(H_pool).squeeze(-1)         # [N]
             outs.append(y_hat)

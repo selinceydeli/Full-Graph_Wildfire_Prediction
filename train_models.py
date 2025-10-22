@@ -12,7 +12,7 @@ from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
-SELECTED_MODEL = MODEL_NAMES[0] # choose model here
+SELECTED_MODEL = MODEL_NAMES[3] # choose model here
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
