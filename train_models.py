@@ -222,9 +222,19 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     not_learning_limit=15
-    num_clusters = 50 # only used if CLUSTERING=True
+    num_clusters = 50 # only
+    
+    
+    if selected_loss_function == "bce":
+        loss_criterion = torch.nn.BCEWithLogitsLoss()
+    elif selected_loss_function == "focal":
+        loss_criterion = FocalLoss()
+    elif selected_loss_function == "dice":
+        loss_criterion = DiceLoss()
+    else:
+        raise NotImplementedError("No other loss functions")
 
-    loss_criterion = torch.nn.BCEWithLogitsLoss()
+    
 
     # Training loop
     training_start = time.time()
