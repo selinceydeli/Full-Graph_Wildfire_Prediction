@@ -89,6 +89,8 @@ def compute_loss_in_chunks(model: torch.nn.Module,
 
             # Call the right forward signature
             if "event" in model.__class__.__name__.lower():
+                print("Using event-based model during val.")
+                print(batch_x.shape)
                 pred = model(batch_x, event_times_batch=evt_batch)   # -> [batch, N]
             else:
                 pred = model(batch_x)                                # -> [batch, N]
@@ -129,7 +131,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     If gamma>0, trains with: J = MSE + gamma * ||s||_1, where s are model params named 's_*'.
     Validation uses plain MSE for fair model selection.
     """
-    
+
     if model_name in ["parametric_gtcnn"]:
         training_data = training_data.flatten(2, 3)
         validation_data = validation_data.flatten(2, 3)
@@ -328,12 +330,13 @@ def train_model_clustering(
             # evt_batch = None
             # if trn_event_times is not None:
             #     # trn_event_times is numpy [B, T]
-            #     evt_batch = trn_event_times[batch_nodes]
+            #     evt_batch = trn_event_times[batch_indices.cpu().numpy()]
 
             # pass this matrix to the model
-            # if "event" in model.__class__.__name__.lower():
-            #     one_step_pred_trn = model(batch_trn_data, event_times_batch=evt_batch)
-            if model_name in ["parametric_gtcnn"]:
+            if "event" in model.__class__.__name__.lower():
+                print("Using event-based model.")
+                one_step_pred_trn = model(batch_trn_data, adj_matrix=S_sub, event_times_batch=trn_event_times)
+            elif model_name in ["parametric_gtcnn"]:
                 one_step_pred_trn = model(batch_trn_data, adj_matrix=S_sub)
             else:
                 # For SimpleGTCNN, it uses the same data for all time steps
@@ -358,6 +361,7 @@ def train_model_clustering(
 
         # Validation: MSE only (no L1) for fair comparison/early stopping
         def _val_mse(crit):
+            print("I am hereeeeeeeeeeeeeeeeeeeeeeee")
             return compute_loss_in_chunks(model, validation_data, single_step_val_labels, crit,
                                           event_times=val_event_times,  
                                           chunk_size=batch_size)          
