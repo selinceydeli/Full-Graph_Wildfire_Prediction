@@ -117,7 +117,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
 
     if model_name in ["parametric_gtcnn"]:
         training_data = training_data.flatten(2, 3)
-        validation_data = validation_data.flatten(2, 3)
+        # validation_data = validation_data.flatten(2, 3)
 
     start = time.time()
     tensorboard = SummaryWriter(log_dir=log_dir)
@@ -247,8 +247,13 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
 ### =========================Clustering==================================
 
 def get_adj_per_cluster(clusters, S_spatial):
-    # clusters = [19, 19, 19, 1, 2, 20, 20, 20] # example
-
+    """
+    Given cluster labels and spatial adjacency matrix, returns:
+    - a dict mapping cluster_id -> list of node_ids in that cluster
+    - a dict mapping cluster_id -> adjacency matrix (csr) for that cluster
+    Note: clusters is a list/array of length N (number of nodes), where each
+    entry is the cluster label for that node.
+    """
     cluster_dict = defaultdict(list)
     for node_id, cluster_id in enumerate(clusters):
         cluster_dict[cluster_id].append(node_id)
@@ -264,7 +269,8 @@ def get_adj_per_cluster(clusters, S_spatial):
 
 def train_model_clustering(
         model, model_name, S_spatial, 
-        training_data, validation_data, single_step_trn_labels, single_step_val_labels,
+        training_data, validation_data, 
+        single_step_trn_labels, single_step_val_labels,
         num_epochs, batch_size, num_clusters,
         loss_criterion, optimizer, scheduler,
         val_metric_criterion,
@@ -299,33 +305,24 @@ def train_model_clustering(
             # Extract subgraph adjacency
             S_sub = adj_matrices[cluster_id]
 
-            # Extract batch data
-            batch_nodes = np.array(cluster_dict[cluster_id], dtype=int)
-            batch_trn_data = training_data[:,:,batch_nodes, :]
-            print("Batch nodes sizes:")
-            print(batch_trn_data.shape)
-            batch_trn_data = batch_trn_data.flatten(2, 3)
-            print(batch_trn_data.shape)
-            batch_one_step_trn_labels = single_step_trn_labels[:,batch_nodes]
-
-            print(len(batch_nodes), "nodes in this cluster.")
-            print("Shape of training data for this cluster:")
-            print(batch_trn_data.shape)
-
-            # evt_batch = None
-            # if trn_event_times is not None:
-            #     # trn_event_times is numpy [B, T]
-            #     evt_batch = trn_event_times[batch_indices.cpu().numpy()]
+            # Extract cluster data
+            cluster_nodes = np.array(cluster_dict[cluster_id], dtype=int)
+            cluster_trn_data = training_data[:,:,cluster_nodes, :]
+            # print("Number of nodes per cluster:")
+            # print(cluster_trn_data.shape)
+            cluster_trn_data = cluster_trn_data.flatten(2, 3)
+            # print(cluster_trn_data.shape)
+            batch_one_step_trn_labels = single_step_trn_labels[:,cluster_nodes]
+            # print(len(cluster_nodes), "nodes in this cluster.")
+            # print("Shape of training data for this cluster:")
+            # print(cluster_trn_data.shape)
 
             # pass this matrix to the model
             if "event" in model.__class__.__name__.lower():
                 print("Using event-based model.")
-                one_step_pred_trn = model(batch_trn_data, adj_matrix=S_sub, event_times_batch=trn_event_times)
-            elif model_name in ["parametric_gtcnn"]:
-                one_step_pred_trn = model(batch_trn_data, adj_matrix=S_sub)
-            else:
-                # For SimpleGTCNN, it uses the same data for all time steps
-                one_step_pred_trn = model(batch_trn_data)
+                one_step_pred_trn = model(cluster_trn_data, adj_matrix=S_sub, event_times_batch=trn_event_times)
+            else: # "parametric_gtcnn"
+                one_step_pred_trn = model(cluster_trn_data, adj_matrix=S_sub)
             print(f"Prediction done.")
 
             # Loss: base MSE + gamma * ||s||_1 (if any s_* exist)
@@ -346,7 +343,6 @@ def train_model_clustering(
 
         # Validation: MSE only (no L1) for fair comparison/early stopping
         def _val_mse(crit):
-            print("I am hereeeeeeeeeeeeeeeeeeeeeeee")
             return compute_loss_in_chunks(model, validation_data, single_step_val_labels, crit,
                                           event_times=val_event_times,  
                                           chunk_size=batch_size)          

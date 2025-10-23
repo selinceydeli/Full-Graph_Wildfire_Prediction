@@ -13,6 +13,7 @@ from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_gr
 
 MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
 SELECTED_MODEL = MODEL_NAMES[3] # choose model here
+CLUSTERING = False # should only be True for parametric_gtcnn models (event based and normal)
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -171,23 +172,25 @@ def main():
         trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
         val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
         tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
+    elif SELECTED_MODEL in ["vanilla_gcnn"]:
+        # [B,N,T,F] -> [B,N,F*T]
+        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3)
+        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
     elif SELECTED_MODEL in ["parametric_gtcnn_event"]:
         # [B,N,T,F] -> [B,F,N,T]
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
-    elif SELECTED_MODEL in ["vanilla_gcnn"]:
-        # [B,N,T,F] -> [B,N,F*T]
-        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3) # TODO: check if this is correct
-        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
-        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
 
     # Train config
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    num_epochs = 1 # 50
+    num_epochs = 1 #5 #50
     batch_size = 16
+    not_learning_limit=15
+    num_clusters = 50 # only used if CLUSTERING=True
 
     loss_criterion = torch.nn.BCEWithLogitsLoss()
 
@@ -195,8 +198,10 @@ def main():
     training_start = time.time()
     print("Training starts with model:", SELECTED_MODEL)
 
-    clustering = True
-    if clustering:
+    if CLUSTERING:
+        if SELECTED_MODEL not in ["parametric_gtcnn", "parametric_gtcnn_event"]:
+            print("Clustering should only be used with parametric_gtcnn model (event based or normal).")
+            return None
         best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model_clustering(
             model=model,
             model_name=SELECTED_MODEL,
@@ -207,12 +212,12 @@ def main():
             single_step_val_labels=val_y.to(device),
             num_epochs=num_epochs,
             batch_size=batch_size,
-            num_clusters=50,
+            num_clusters=num_clusters,
             loss_criterion=loss_criterion,
             optimizer=optimizer, scheduler=scheduler,
             val_metric_criterion=None,
             log_dir=f"./runs/{SELECTED_MODEL}",
-            not_learning_limit=15,
+            not_learning_limit=not_learning_limit,
             gamma=gamma,
             trn_event_times=trn_evt,       # pass event times (numpy) to train
             val_event_times=val_evt        # pass event times (numpy) to val
@@ -230,11 +235,13 @@ def main():
             optimizer=optimizer, scheduler=scheduler,
             val_metric_criterion=None,
             log_dir=f"./runs/{SELECTED_MODEL}",
-            not_learning_limit=15,
+            not_learning_limit=not_learning_limit,
             gamma=gamma,
             trn_event_times=trn_evt,       # pass event times (numpy) to train
             val_event_times=val_evt        # pass event times (numpy) to val
         )
+    
+    # TODO: save the best model?
 
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
