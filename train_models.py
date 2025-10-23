@@ -12,7 +12,7 @@ from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
 MODEL_NAMES = ["vanilla_gcnn", "parametric_gtcnn", "parametric_gtcnn_event"] # removed: "disjoint_st_baseline"
-SELECTED_MODEL = MODEL_NAMES[1] # choose model here
+SELECTED_MODEL = MODEL_NAMES[2] # choose model here
 CLUSTERING = True # should only be True for parametric_gtcnn models (event based and normal)
 
 def main():
@@ -27,8 +27,8 @@ def main():
     timeseries_labels = np.load(file='data/labels.npy')   # shape: (N_stations, T_timestamps)
 
     # Define the parameters
-    # splits = [0.6, 0.2, 0.2]
-    splits = [0.1, 0.1, 0.8] # for quick testing
+    splits = [0.6, 0.2, 0.2]
+    # splits = [0.1, 0.1, 0.8] # for quick testing
     pred_horizon = 1
     obs_window = 4
     n_stations = timeseries_features.shape[0]
@@ -187,7 +187,7 @@ def main():
     gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0 # TODO: should it be non-zero for event-based too?
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    num_epochs = 5 #50
+    num_epochs = 10 #50
     batch_size = 16
     not_learning_limit=15
     num_clusters = 50 # only used if CLUSTERING=True
