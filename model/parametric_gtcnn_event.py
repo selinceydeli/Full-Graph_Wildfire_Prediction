@@ -128,12 +128,12 @@ class ParametricGTCNN_Event(nn.Module):
         I_N = sp.eye(N, format='csr')
         S_spatial_csr = S_spatial
 
-
         K10 = scipy_to_torch_sparse(sp.kron(S_T_evt, I_N,               format='csr')).coalesce().to(self.device)
         K11 = scipy_to_torch_sparse(sp.kron(S_T_evt, S_spatial_csr, format='csr')).coalesce().to(self.device)
         return K10, K11
 
-    # @lru_cache(maxsize=1024)
+    # TODO: if uncommented, causes bugs due to adj not being hashable
+    # @lru_cache(maxsize=1024) 
     # def _cached_temporal_blocks(self, key: tuple, N: int = None, S_spatial: sp.spmatrix = None):
     #     et = np.array(key, dtype=float)
     #     return self._build_temporal_blocks(et, N=N, S_spatial=S_spatial)
@@ -150,33 +150,12 @@ class ParametricGTCNN_Event(nn.Module):
         self.K11 = K11
 
     # ---- graph normalization + reshape helpers ----
-    def _current_A_hat(self) -> torch.Tensor:
-        # Nonnegative mix of the four Kronecker blocks
-        s00 = torch.relu(self.s_00)
-        s01 = torch.relu(self.s_01)
-        s10 = torch.relu(self.s_10)
-        s11 = torch.relu(self.s_11)
-        A = (s00 * self.K00) + (s01 * self.K01) + (s10 * self.K10) + (s11 * self.K11)
-        # Row-normalization suits directed time edges
-        return torch_sparse_row_norm(A)
-
-    def _reshape_to_product_nodes(self, x: torch.Tensor, N: int) -> torch.Tensor:
+    def _current_A_hat(self, adj_matrix):
+        """ 
+        Graph normalization with current temporal blocks.
+        input: adj_matrix (spatial graph)
+        output: A (product graph)
         """
-        Accept [B,F,N,T] or [B,F,N*T]; return [B, T*N, F]
-        """
-        if x.dim() == 3:
-            B, F, NT = x.shape
-            assert F == self.F_in and NT == N * self.T
-            x = x.view(B, F, N, self.T)
-        elif x.dim() == 4:
-            B, F, N, T = x.shape
-            assert (F, N, T) == (self.F_in, N, self.T)
-        else:
-            raise ValueError("Expected x with 3 or 4 dims.")
-        return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * N, self.F_in)
-
-    def _current_A_hat_subgraph(self, adj_matrix):
-
         # Spatial graph 
         S = to_csr(adj_matrix)
         N = int(S.shape[0])
@@ -199,27 +178,42 @@ class ParametricGTCNN_Event(nn.Module):
         s10 = torch.relu(self.s_10)
         s11 = torch.relu(self.s_11)
 
-        A_hat = (s00 * K00) + (s01 * K01) + (s10 * K10) + (s11 * K11)
-        return torch_sparse_row_norm(A_hat)
-
+        # Row-normalization suits directed time edges
+        A = (s00 * K00) + (s01 * K01) + (s10 * K10) + (s11 * K11)
+        return torch_sparse_row_norm(A)
+    
+    def _reshape_to_product_nodes(self, x: torch.Tensor, N: int) -> torch.Tensor:
+        """
+        Accept [B,F,N,T] or [B,F,N*T]; return [B, T*N, F]
+        """
+        if x.dim() == 3:
+            B, F, NT = x.shape
+            assert F == self.F_in and NT == N * self.T
+            x = x.view(B, F, N, self.T)
+        elif x.dim() == 4:
+            B, F, N, T = x.shape
+            assert (F, N, T) == (self.F_in, N, self.T)
+        else:
+            raise ValueError("Expected x with 3 or 4 dims.")
+        return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * N, self.F_in)
 
     # ---- forward (now accepts per-batch event times) ----
     def forward(self, x: torch.Tensor, adj_matrix: torch.Tensor = None, event_times_batch=None) -> torch.Tensor:
         """
-        x: [B, F=1, N, T] (preferred) or [B, F=1, N*T]
+        x: [B, F, N, T] (preferred) or [B, F, N*T]
         event_times_batch: None or numpy array of shape [B, T] (float days, non-decreasing per row)
         """
 
         B = x.size(0)
 
-        if adj_matrix != None:
-            A_hat = self._current_A_hat_subgraph(adj_matrix)
-            N = adj_matrix.shape[0]
-        else:
-            A_hat = self._current_A_hat()
-            N = A_hat.size(0) // self.T
+        if adj_matrix is None:
             adj_matrix = self.S_spatial_csr
 
+        # Get current A_hat with updated temporal blocks
+        A_hat = self._current_A_hat(adj_matrix)
+        N = A_hat.size(0) // self.T
+
+        # Reshape input to match product graph structure
         X_prod = self._reshape_to_product_nodes(x, N=N)  # [B, T*N, F]
         outs = []
 
@@ -233,9 +227,9 @@ class ParametricGTCNN_Event(nn.Module):
                 H = self.act(H)
                 H = self.dropout(H)
 
-            H = H.view(self.T, N, -1)                # [T, N, C]
+            H = H.view(self.T, N, -1) # [T, N, C]
             H_pool = H.mean(dim=0) if self.pool == "mean" else H[-1]
-            y_hat = self.head(H_pool).squeeze(-1)         # [N]
+            y_hat = self.head(H_pool).squeeze(-1) # [N]
             outs.append(y_hat)
 
-        return torch.stack(outs, dim=0)                   # [B, N]
+        return torch.stack(outs, dim=0) # [B, N]
