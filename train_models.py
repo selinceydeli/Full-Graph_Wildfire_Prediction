@@ -6,7 +6,7 @@ import argparse
 from typing import List 
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
-from model.disjoint_st_baseline import DisjointSTModel
+# from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
 from utils.train_utils import train_model, train_mode_clusterGCN, make_graph_clusters
 from utils.eval_utils import evaluate_model
@@ -186,6 +186,18 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
+    
+    # elif SELECTED_MODEL == "disjoint_st_baseline":
+    #     model = DisjointSTModel(
+    #         S_spatial=A,
+    #         T=obs_window,
+    #         F_in=n_features,
+    #         spatial_hidden=(64, 64),
+    #         temporal_hidden=64,
+    #         K=2,
+    #         order="ST",
+    #         device=device
+    #     ).to(device)
 
     # Model-specific reshaping
     if selected_model in ["parametric_gtcnn", "disjoint_st_baseline"]:
