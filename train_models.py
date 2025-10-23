@@ -5,15 +5,15 @@ import scipy.sparse as sp
 
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
-from model.disjoint_st_baseline import DisjointSTModel
+# from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
 from utils.train_utils import train_model, train_model_clustering
 from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
-MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
-SELECTED_MODEL = MODEL_NAMES[3] # choose model here
-CLUSTERING = False # should only be True for parametric_gtcnn models (event based and normal)
+MODEL_NAMES = ["vanilla_gcnn", "parametric_gtcnn", "parametric_gtcnn_event"] # removed: "disjoint_st_baseline"
+SELECTED_MODEL = MODEL_NAMES[1] # choose model here
+CLUSTERING = True # should only be True for parametric_gtcnn models (event based and normal)
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -116,7 +116,18 @@ def main():
     tst_X = impute_nan_with_feature_mean(tst_X, show_nan_info=True)
 
     # Define the model
-    if SELECTED_MODEL == "parametric_gtcnn":
+    if SELECTED_MODEL == "vanilla_gcnn":
+        in_channels = n_features * obs_window
+        model = VanillaGCN(
+            S_spatial=A,
+            in_channels=in_channels,
+            hidden_channels=24,
+            out_channels=1,
+            num_layers=10,
+            dropout=0.1
+        ).to(device)
+    
+    elif SELECTED_MODEL == "parametric_gtcnn":
         model = ParametricGTCNN(
             S_spatial=A,
             T=obs_window,
@@ -128,29 +139,6 @@ def main():
             device=device
         ).to(device)
 
-    elif SELECTED_MODEL == "disjoint_st_baseline":
-        model = DisjointSTModel(
-            S_spatial=A,
-            T=obs_window,
-            F_in=n_features,
-            spatial_hidden=(64, 64),
-            temporal_hidden=64,
-            K=2,
-            order="ST",
-            device=device
-        ).to(device)
-
-    elif SELECTED_MODEL == "vanilla_gcnn":
-        in_channels = n_features * obs_window
-        model = VanillaGCN(
-            S_spatial=A,
-            in_channels=in_channels,
-            hidden_channels=24,
-            out_channels=1,
-            num_layers=10,
-            dropout=0.1
-        ).to(device)
-
     elif SELECTED_MODEL == "parametric_gtcnn_event":
         # If you updated the class to take obs_window (recommended):
         model = ParametricGTCNN_Event(
@@ -160,34 +148,46 @@ def main():
             init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
+    
+    # elif SELECTED_MODEL == "disjoint_st_baseline":
+    #     model = DisjointSTModel(
+    #         S_spatial=A,
+    #         T=obs_window,
+    #         F_in=n_features,
+    #         spatial_hidden=(64, 64),
+    #         temporal_hidden=64,
+    #         K=2,
+    #         order="ST",
+    #         device=device
+    #     ).to(device)
 
     # Model-specific reshaping
-    if SELECTED_MODEL in ["parametric_gtcnn"]:
-        # [B,N,T,F] -> [B,F,N,T]
-        trn_X = trn_X.permute(0, 3, 1, 2)
-        val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
-        tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
-    elif SELECTED_MODEL in ["disjoint_st_baseline"]:
-        # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
-        trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
-        val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
-        tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
-    elif SELECTED_MODEL in ["vanilla_gcnn"]:
+    if SELECTED_MODEL in ["vanilla_gcnn"]:
         # [B,N,T,F] -> [B,N,F*T]
         trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3)
         val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
         tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
+    elif SELECTED_MODEL in ["parametric_gtcnn"]:
+        # [B,N,T,F] -> [B,F,N,T]
+        trn_X = trn_X.permute(0, 3, 1, 2)
+        val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
     elif SELECTED_MODEL in ["parametric_gtcnn_event"]:
         # [B,N,T,F] -> [B,F,N,T]
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
+    # elif SELECTED_MODEL in ["disjoint_st_baseline"]:
+    #     # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
+    #     trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
+    #     val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
+    #     tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
 
     # Train config
-    gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
+    gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0 # TODO: should it be non-zero for event-based too?
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    num_epochs = 1 #5 #50
+    num_epochs = 5 #50
     batch_size = 16
     not_learning_limit=15
     num_clusters = 50 # only used if CLUSTERING=True
