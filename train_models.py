@@ -210,9 +210,19 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     
     if selected_loss_function == "bce":
         loss_criterion = torch.nn.BCEWithLogitsLoss()
-    elif selected_loss_function == "weighted_bce":
-        # TODO: Add the definition for weighted bce
-        loss_criterion = torch.nn.BCEWithLogitsLoss()
+    elif selected_loss_function == "weighted_bce": 
+        with torch.no_grad():
+            pos = trn_y.sum().item()
+            total = trn_y.numel()
+            neg = total - pos
+        if pos <= 0:
+            pos_weight_value = 1.0
+        else:
+            pos_weight_value = neg / pos
+        pos_weight = torch.tensor(pos_weight_value, dtype=torch.float32, device=device)
+        pos_percentage = 100 * (pos / total)
+        print(f"[Imbalance] percentage of train positives={pos_percentage:.2f}%, pos_weight={pos_weight_value:.2f}")
+        loss_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif selected_loss_function == "focal":
         loss_criterion = FocalLoss()
     elif selected_loss_function == "dice":
