@@ -78,9 +78,9 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
                 agg[c] = "mean"
             else:
                 agg[c] = "first"
-        print("I got here")
+        
         long = long.groupby(key, as_index=False).agg(agg)
-        print("I am pickling")
+        
         long.to_pickle(collapse_cache)
 
     # Create the rectangular panel
@@ -89,7 +89,6 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
     panel_index = pd.MultiIndex.from_product([nodes, days], names=key)
     panel = long.set_index(key).reindex(panel_index)
     
-    print("I got here")
     static_candidates = {"PROVINCE", "BROADLEA", "CONIFER", "MIXED", "TRANSIT", "OTHERNATLC",
                          "AGRIAREAS", "ARTIFSURF", "OTHERLC", "PERCNA2K", "dist_to_water"}
     static_cols = [c for c in panel.columns if c in static_candidates]
@@ -103,7 +102,6 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
     bool_cols = list(num_panel.select_dtypes(include=["bool"]).columns)
     if bool_cols:
         num_panel[bool_cols] = num_panel[bool_cols].astype(float)
-    print("I got here 2")
     # Print dropped non-numeric columns
     dropped = [c for c in panel.columns if c not in num_panel.columns]
     if dropped:

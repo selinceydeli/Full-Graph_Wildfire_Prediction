@@ -3,6 +3,8 @@ import torch.nn.functional as F
 import torch 
 
 
+#PyTorch. Adapted from https://www.kaggle.com/code/bigironsphere/loss-function-library-keras-pytorch#Dice-Loss
+
 class DiceLoss(nn.Module):
     def __init__(self, weight=None, size_average=True):
         super(DiceLoss, self).__init__()
