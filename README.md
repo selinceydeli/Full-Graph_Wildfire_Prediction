@@ -26,7 +26,7 @@ Artifacts saved under `data/`:
 - `labels.npy` — binary wildfire labels for each node/day [shape `(N, T)`]
 - `distance_matrix.npy` — pairwise node distances between projected-CRS centroids [shape `(N, N)`]
 
-## 3) Train a Model via the Training Script
+## 3) Train a Model
 
 `train_models.py` is a CLI entry point that trains one of three models on your wildfire dataset and evaluates on the test split.
 
