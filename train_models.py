@@ -19,32 +19,39 @@ from torcheval.metrics import BinaryF1Score
 
 def parse_args():
     parser = argparse.ArgumentParser(prog='Training Loop for Wildfire Graph Machine Learning Project')
-    parser.add_argument('--days_data_path', type=str, help="The path to the timeline to create per-window event images.", default="data/days.npy")
-    parser.add_argument('--timeseries_data_path', type=str, help="The filepath to our timeseries", default='data/timeseries_data.npy')
+    parser.add_argument('--days_data_path', type=str,
+                        help="The path to the timeline to create per-window event images.", default="data/days.npy")
+    parser.add_argument('--timeseries_data_path', type=str, help="The filepath to our timeseries",
+                        default='data/timeseries_data.npy')
     parser.add_argument('--distance_matrix_filepath', type=str, default='data/distance_matrix.npy')
-    parser.add_argument('--labels_path', type=str, help="The filepath to te labels for our timeseries.", default='data/labels.npy')
+    parser.add_argument('--labels_path', type=str, help="The filepath to te labels for our timeseries.",
+                        default='data/labels.npy')
     parser.add_argument('--pred_horizon', type=int, help='How many timesteps we try to predict ahead.', default=1)
     parser.add_argument('--obs_window', type=int, help='How many timesteps are used in our convolutions.', default=4)
     parser.add_argument('--k', type=int, help="How many neighbors we keep in our adjacency matrix.", default=4)
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--selected_loss_function', choices=["bce", "weighted_bce", "focal", "dice"], type=str, default="bce")
-    parser.add_argument('--selected_model', type=str, choices=["parametric_gtcnn", "vanilla_gcnn", "parametric_gtcnn_event"], default="vanilla_gcnn")
+    parser.add_argument('--selected_loss_function', choices=["bce", "weighted_bce", "focal", "dice"], type=str,
+                        default="bce")
+    parser.add_argument('--selected_model', type=str,
+                        choices=["parametric_gtcnn", "vanilla_gcnn", "parametric_gtcnn_event", "simple_gc"],
+                        default="simple_gc")
     parser.add_argument('--train_val_test_split', nargs=3, type=float, default=[0.6, 0.2, 0.2])
-    parser.add_argument('--threshold_tp', help = "Threshold for the confidence needed to be a true positive.", type=float, default=0.5)
-    parser.add_argument('--clustering', help = "Boolean for using clustering or not.", type=bool, default=False)
+    parser.add_argument('--threshold_tp', help="Threshold for the confidence needed to be a true positive.", type=float,
+                        default=0.5)
+    parser.add_argument('--clustering', help="Boolean for using clustering or not.", type=bool, default=False)
     return parser
 
-def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance_matrix_filepath:str,
-        pred_horizon:int, obs_window:int, k:int, num_epochs:int, batch_size:int, selected_loss_function:str,
-        selected_model:str, train_val_test_split:List[int], threshold_tp:float, clustering:bool):
 
+def main(days_data_path: str, timeseries_data_path: str, labels_path: str, distance_matrix_filepath: str,
+         pred_horizon: int, obs_window: int, k: int, num_epochs: int, batch_size: int, selected_loss_function: str,
+         selected_model: str, train_val_test_split: List[int], threshold_tp: float, clustering: bool):
     # Load the days
     days = np.load(days_data_path)
 
     # Load the dataset 
-    timeseries_features = np.load(file=timeseries_data_path) # shape: (N_stations, T_timestamps, F_features)
-    timeseries_labels = np.load(file=labels_path)   # shape: (N_stations, T_timestamps)
+    timeseries_features = np.load(file=timeseries_data_path)  # shape: (N_stations, T_timestamps, F_features)
+    timeseries_labels = np.load(file=labels_path)  # shape: (N_stations, T_timestamps)
 
     # Load the distance matrix
     dist_matrix = np.load(file=distance_matrix_filepath)
@@ -86,19 +93,19 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         obs_window=obs_window,
         in_sample_mean=True,
         days=days,
-        return_event_times=True   # needed for the event-based GTCNN model
+        return_event_times=True  # needed for the event-based GTCNN model
     )
 
     # Create the kNN graph to be used as the spatial adjacency matrix
     # k is staticly set to 4 (to capture south-north-east-west neighbors)
     A = knn_graph(normalized_dist, k)
     n = A.shape[0]
-    sparsity = 1 - (A.nnz / (n * n)) 
-    print(f"Graph sparsity: {sparsity:.4f}") # k = 4 results in sparsity 0.9996
+    sparsity = 1 - (A.nnz / (n * n))
+    print(f"Graph sparsity: {sparsity:.4f}")  # k = 4 results in sparsity 0.9996
 
     N = timeseries_features.shape[0]
-    density = A.nnz / (N*(N-1))
-    print(f"[Graph] N={N}, edges={A.nnz//2} (undirected), density={density:.6f}")
+    density = A.nnz / (N * (N - 1))
+    print(f"[Graph] N={N}, edges={A.nnz // 2} (undirected), density={density:.6f}")
 
     # Sanity checks
     assert A.shape[0] == N
@@ -117,11 +124,11 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Prepare the data for training
-    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)   # [B,N,T,F]
+    trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)  # [B,N,T,F]
     val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
     tst_X = torch.tensor(dataset['tst']['data'], dtype=torch.float32)
 
-    trn_evt = dataset['trn'].get('event_times', None)   # numpy [B,T]
+    trn_evt = dataset['trn'].get('event_times', None)  # numpy [B,T]
     val_evt = dataset['val'].get('event_times', None)
     tst_evt = dataset['tst'].get('event_times', None)
 
@@ -151,7 +158,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             S_spatial=A,
             T=obs_window,
             F_in=n_features,
-            hidden_dims=(64,64),
+            hidden_dims=(64, 64),
             K=2,
             pool="mean",
             init_s=(0.0, 1.0, 1.0, 0.0),
@@ -163,11 +170,17 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         model = ParametricGTCNN_Event(
             S_spatial=A,
             obs_window=obs_window,
-            F_in=n_features, hidden_dims=(64,64), K=2, pool="mean",
-            init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
+            F_in=n_features, hidden_dims=(64, 64), K=2, pool="mean",
+            init_s=(0.0, 1.0, 1.0, 0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
-    
+
+    elif selected_model == "simple_gc":
+        in_channels = n_features * obs_window
+        model = SimpleGraphConvolution(
+            in_channels=in_channels,
+            out_channels=1,
+        ).to(device)
     # elif SELECTED_MODEL == "disjoint_st_baseline":
     #     model = DisjointSTModel(
     #         S_spatial=A,
@@ -181,7 +194,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     #     ).to(device)
 
     # Model-specific reshaping
-    if selected_model in ["vanilla_gcnn"]:
+    if selected_model in ["vanilla_gcnn", "simple_gc"]:
         # [B,N,T,F] -> [B,N,F*T]
         trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3)
         val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
@@ -196,6 +209,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
+
     # elif SELECTED_MODEL in ["disjoint_st_baseline"]:
     #     # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
     #     trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
@@ -203,11 +217,11 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     #     tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
 
     # Train config
-    gamma = 1e-4 if selected_model == "parametric_gtcnn" else 0.0 # TODO: should it be non-zero for event-based too?
+    gamma = 1e-4 if selected_model == "parametric_gtcnn" else 0.0  # TODO: should it be non-zero for event-based too?
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    not_learning_limit=15
-    num_clusters = 50 # only used if CLUSTERING=True
+    not_learning_limit = 15
+    num_clusters = 50  # only used if CLUSTERING=True
 
     if selected_loss_function == "bce":
         loss_criterion = torch.nn.BCEWithLogitsLoss()
@@ -259,8 +273,8 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             log_dir=f"./runs/{selected_model}",
             not_learning_limit=not_learning_limit,
             gamma=gamma,
-            trn_event_times=trn_evt,       # pass event times (numpy) to train
-            val_event_times=val_evt        # pass event times (numpy) to val
+            trn_event_times=trn_evt,  # pass event times (numpy) to train
+            val_event_times=val_evt  # pass event times (numpy) to val
         )
 
     # Full-batch training
@@ -273,7 +287,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             validation_data=val_X.to(device),
             single_step_trn_labels=trn_y.to(device),
             single_step_val_labels=val_y.to(device),
-            batch_size = batch_size,
+            batch_size=batch_size,
             num_epochs=num_epochs,
             loss_criterion=loss_criterion,
             optimizer=optimizer, scheduler=scheduler,
@@ -281,8 +295,8 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             log_dir=f"./runs/{selected_model}",
             not_learning_limit=15,
             gamma=gamma,
-            trn_event_times=trn_evt,       # pass event times (numpy) to train
-            val_event_times=val_evt        # pass event times (numpy) to val
+            trn_event_times=trn_evt,  # pass event times (numpy) to train
+            val_event_times=val_evt  # pass event times (numpy) to val
         )
 
     # TODO: save the best model?
@@ -292,14 +306,14 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
-            title=f"{selected_model} — train/val loss", model_name=selected_model, save_path=None)
+                title=f"{selected_model} — train/val loss", model_name=selected_model, save_path=None)
 
     # Evaluate the best model on the test set
     metrics = evaluate_model(
         best_model, tst_X, tst_y, loss_criterion,
-        apply_sigmoid=True,            # True for BCE/logits; False for regression heads
+        apply_sigmoid=True,  # True for BCE/logits; False for regression heads
         chunk_size=256,
-        event_times=tst_evt            # pass event times (numpy) to test
+        event_times=tst_evt  # pass event times (numpy) to test
     )
 
     print("Test set metrics:")
@@ -326,4 +340,3 @@ if __name__ == "__main__":
     clustering = args.clustering
     main(days_data_path, timeseries_data_path, labels_path, distance_matrix_filepath, pred_horizon, obs_window, k,
          num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split, threshold_tp, clustering)
-
