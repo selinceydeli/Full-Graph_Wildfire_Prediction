@@ -27,34 +27,30 @@ def parse_args():
     parser.add_argument('--k', type=int, help="How many neighbors we keep in our adjacency matrix.", default=4)
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--selected_loss_function', choices=["bce", "focal", "dice"], type=str, default="bce")
-    parser.add_argument('--selected_model', type=str, choices=["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"], default="vanilla_gcnn")
+    parser.add_argument('--selected_loss_function', choices=["bce", "weighted_bce", "focal", "dice"], type=str, default="bce")
+    parser.add_argument('--selected_model', type=str, choices=["parametric_gtcnn", "vanilla_gcnn", "parametric_gtcnn_event"], default="vanilla_gcnn")
     parser.add_argument('--train_val_test_split', nargs=3, type=float, default=[0.6, 0.2, 0.2])
     parser.add_argument('--threshold_tp', help = "Threshold for the confidence needed to be a true positive.", type=float, default=0.5)
     parser.add_argument('--clustering', help = "Boolean for using clustering or not.", type=bool, default=False)
-    
-    
-    
     return parser 
 
 def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance_matrix_filepath:str,
         pred_horizon:int, obs_window:int, k:int, num_epochs:int, batch_size:int, selected_loss_function:str,
         selected_model:str, train_val_test_split:List[int], threshold_tp:float, clustering:bool):
 
-    
-    
-    
+    # Load the days
     days = np.load(days_data_path)
+
     # Load the dataset 
     timeseries_features = np.load(file=timeseries_data_path) # shape: (N_stations, T_timestamps, F_features)
     timeseries_labels = np.load(file=labels_path)   # shape: (N_stations, T_timestamps)
+
     # Load the distance matrix
     dist_matrix = np.load(file=distance_matrix_filepath)
     normalized_dist = dist_matrix / np.max(dist_matrix)
     
     # sanity check
     assert np.all((days[1:] - days[:-1]) >= np.timedelta64(0, 'ns')), "days must be non-decreasing"
-
 
     # Define the parameters
     splits = train_val_test_split
@@ -87,12 +83,10 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         splits=splits,
         pred_horizon=pred_horizon,
         obs_window=obs_window,
-        in_sample_mean=True,
+        in_sample_mean=True,      # TODO: check if True or False
         days=days,
         return_event_times=True   # needed for the event-based GTCNN model
     )
-
-
 
     # Create the kNN graph to be used as the spatial adjacency matrix
     # k is staticly set to 4 (to capture south-north-east-west neighbors)
@@ -138,10 +132,20 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     trn_X = impute_nan_with_feature_mean(trn_X, show_nan_info=True)
     val_X = impute_nan_with_feature_mean(val_X, show_nan_info=True)
     tst_X = impute_nan_with_feature_mean(tst_X, show_nan_info=True)
-    
 
     # Define the model
-    if selected_model == "parametric_gtcnn":
+    if selected_model == "vanilla_gcnn":
+        in_channels = n_features * obs_window
+        model = VanillaGCN(
+            S_spatial=A,
+            in_channels=in_channels,
+            hidden_channels=24,
+            out_channels=1,
+            num_layers=10,
+            dropout=0.1
+        ).to(device)
+    
+    elif selected_model == "parametric_gtcnn":
         model = ParametricGTCNN(
             S_spatial=A,
             T=obs_window,
@@ -153,29 +157,6 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             device=device
         ).to(device)
 
-    elif selected_model == "disjoint_st_baseline":
-        model = DisjointSTModel(
-            S_spatial=A,
-            T=obs_window,
-            F_in=n_features,
-            spatial_hidden=(64, 64),
-            temporal_hidden=64,
-            K=2,
-            order="ST",
-            device=device
-        ).to(device)
-
-    elif selected_model == "vanilla_gcnn":
-        in_channels = n_features * obs_window
-        model = VanillaGCN(
-            S_spatial=A,
-            in_channels=in_channels,
-            hidden_channels=24,
-            out_channels=1,
-            num_layers=10,
-            dropout=0.1
-        ).to(device)
-
     elif selected_model == "parametric_gtcnn_event":
         # If you updated the class to take obs_window (recommended):
         model = ParametricGTCNN_Event(
@@ -185,8 +166,6 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
-    else:
-        raise Exception("No such model")
     
     # elif SELECTED_MODEL == "disjoint_st_baseline":
     #     model = DisjointSTModel(
@@ -201,9 +180,14 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     #     ).to(device)
 
     # Model-specific reshaping
-    if selected_model in ["parametric_gtcnn", "disjoint_st_baseline"]:
-        # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
-        trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
+    if selected_model in ["vanilla_gcnn"]:
+        # [B,N,T,F] -> [B,N,F*T]
+        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3)
+        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
+    elif selected_model in ["parametric_gtcnn"]:
+        # [B,N,T,F] -> [B,F,N,T]
+        trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
         tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
     elif selected_model in ["parametric_gtcnn_event"]:
@@ -211,21 +195,23 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
-    elif selected_model in ["vanilla_gcnn"]:
-        # [B,N,T,F] -> [B,N,F*T]
-        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3) # TODO: check if this is correct
-        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
-        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
+    # elif SELECTED_MODEL in ["disjoint_st_baseline"]:
+    #     # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
+    #     trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
+    #     val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
+    #     tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
 
     # Train config
-    gamma = 1e-4 if selected_model == "parametric_gtcnn" else 0.0
+    gamma = 1e-4 if selected_model == "parametric_gtcnn" else 0.0 # TODO: should it be non-zero for event-based too?
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     not_learning_limit=15
-    num_clusters = 50 # only
-    
+    num_clusters = 50 # only used if CLUSTERING=True
     
     if selected_loss_function == "bce":
+        loss_criterion = torch.nn.BCEWithLogitsLoss()
+    elif selected_loss_function == "weighted_bce":
+        # TODO: Add the definition for weighted bce
         loss_criterion = torch.nn.BCEWithLogitsLoss()
     elif selected_loss_function == "focal":
         loss_criterion = FocalLoss()
@@ -234,37 +220,17 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     else:
         raise NotImplementedError("No other loss functions")
 
-    
-
     # Training loop
     training_start = time.time()
     print("Training starts with model:", selected_model)
 
- 
-    
-    
-    if selected_loss_function == "bce":
-        loss_criterion = torch.nn.BCEWithLogitsLoss()
-    elif selected_loss_function == "focal":
-        loss_criterion = FocalLoss()
-    elif selected_loss_function == "dice":
-        loss_criterion = DiceLoss()
-    else:
-        raise NotImplementedError("No other loss functions")
-
-    
-    # Training loop
-    training_start = time.time()
-    print("Training starts with model:", selected_model)
-
+    # Small batch training with clustering
     if clustering:
         if selected_model not in ["parametric_gtcnn", "parametric_gtcnn_event"]:
             print("Clustering should only be used with parametric_gtcnn model (event based or normal).")
             return None
-        trn_evt = dataset['trn'].get('event_times', None)   # numpy [B,T]
-        val_evt = dataset['val'].get('event_times', None)
-        tst_evt = dataset['tst'].get('event_times', None)
-
+        
+        print("Small-batch training with clustering...")
         best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model_clustering(
             model=model,
             model_name=selected_model,
@@ -285,8 +251,10 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             trn_event_times=trn_evt,       # pass event times (numpy) to train
             val_event_times=val_evt        # pass event times (numpy) to val
         )
+    
+    # Full-batch training
     else:
-
+        print("Full-batch training...")
         best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
             model,
             model_name=selected_model,
@@ -301,10 +269,13 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             val_metric_criterion=BinaryF1Score(threshold=threshold_tp),
             log_dir=f"./runs/{selected_model}",
             not_learning_limit=15,
-            gamma=gamma 
+            gamma=gamma,
+            trn_event_times=trn_evt,       # pass event times (numpy) to train
+            val_event_times=val_evt        # pass event times (numpy) to val 
         )
-    
-    
+
+    # TODO: save the best model?
+
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
 
