@@ -6,9 +6,9 @@ import argparse
 from typing import List 
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
-# from model.disjoint_st_baseline import DisjointSTModel
+from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model, train_mode_clusterGCN, make_graph_clusters
+from utils.train_utils import train_model, train_model_clustering
 from utils.eval_utils import evaluate_model
 from losses.focal_loss import FocalLoss
 from losses.dice_loss import DiceLoss
@@ -31,20 +31,19 @@ def parse_args():
     parser.add_argument('--selected_model', type=str, choices=["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"], default="vanilla_gcnn")
     parser.add_argument('--train_val_test_split', nargs=3, type=float, default=[0.6, 0.2, 0.2])
     parser.add_argument('--threshold_tp', help = "Threshold for the confidence needed to be a true positive.", type=float, default=0.5)
-    parser.add_argument('--clustering', help = "Boolean for using clustering or not.", type=bool, default=True)
+    parser.add_argument('--clustering', help = "Boolean for using clustering or not.", type=bool, default=False)
     
     
     
     return parser 
 
 def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance_matrix_filepath:str,
-        pred_horizon:int, obs_window:int, kLint, num_epochs:int, batch_size:int, selected_loss_function:str,
+        pred_horizon:int, obs_window:int, k:int, num_epochs:int, batch_size:int, selected_loss_function:str,
         selected_model:str, train_val_test_split:List[int], threshold_tp:float, clustering:bool):
-    # Load timeline and create per-window event times (length = obs_window)
+
     
     
     
-    CLUSTERING = clustering
     days = np.load(days_data_path)
     # Load the dataset 
     timeseries_features = np.load(file=timeseries_data_path) # shape: (N_stations, T_timestamps, F_features)
@@ -140,7 +139,6 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     val_X = impute_nan_with_feature_mean(val_X, show_nan_info=True)
     tst_X = impute_nan_with_feature_mean(tst_X, show_nan_info=True)
     
-    print("Hi")
 
     # Define the model
     if selected_model == "parametric_gtcnn":
@@ -187,6 +185,8 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
+    else:
+        raise Exception("No such model")
     
     # elif SELECTED_MODEL == "disjoint_st_baseline":
     #     model = DisjointSTModel(
@@ -254,14 +254,17 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
 
     
     # Training loop
-    clusters = make_graph_clusters(A, num_clusters=150)
     training_start = time.time()
     print("Training starts with model:", selected_model)
 
-    if CLUSTERING:
+    if clustering:
         if selected_model not in ["parametric_gtcnn", "parametric_gtcnn_event"]:
             print("Clustering should only be used with parametric_gtcnn model (event based or normal).")
             return None
+        trn_evt = dataset['trn'].get('event_times', None)   # numpy [B,T]
+        val_evt = dataset['val'].get('event_times', None)
+        tst_evt = dataset['tst'].get('event_times', None)
+
         best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model_clustering(
             model=model,
             model_name=selected_model,
@@ -275,7 +278,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             num_clusters=num_clusters,
             loss_criterion=loss_criterion,
             optimizer=optimizer, scheduler=scheduler,
-            val_metric_criterion=BinaryF1Score(threshold=threshold_tp),,
+            val_metric_criterion=BinaryF1Score(threshold=threshold_tp),
             log_dir=f"./runs/{selected_model}",
             not_learning_limit=not_learning_limit,
             gamma=gamma,
@@ -291,10 +294,8 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             validation_data=val_X.to(device),
             single_step_trn_labels=trn_y.to(device),
             single_step_val_labels=val_y.to(device),
-            S_spatial=A,
-            clusters=clusters,
+            batch_size = batch_size,
             num_epochs=num_epochs,
-            clusters_per_batch=3,
             loss_criterion=loss_criterion,
             optimizer=optimizer, scheduler=scheduler,
             val_metric_criterion=BinaryF1Score(threshold=threshold_tp),

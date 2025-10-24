@@ -362,11 +362,12 @@ def train_model_clustering(
                                           event_times=val_event_times,  
                                           chunk_size=batch_size)        
 
+        # Use for early stopping
         val_loss = _val_mse(loss_criterion)
         val_loss_per_epoch.append(val_loss)
         tensorboard.add_scalar('val-loss', val_loss, epoch)
 
-        # Metric for scheduling/early stopping (use MSE unless a separate metric is supplied)
+        
         val_metric = _val_mse(val_metric_criterion) if val_metric_criterion else val_loss
         tensorboard.add_scalar('val-metric', val_metric, epoch)
 
