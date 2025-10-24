@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--selected_model', type=str, choices=["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"], default="vanilla_gcnn")
     parser.add_argument('--train_val_test_split', nargs=3, type=float, default=[0.6, 0.2, 0.2])
     parser.add_argument('--threshold_tp', help = "Threshold for the confidence needed to be a true positive.", type=float, default=0.5)
-    parser.add_argument('--clustering', type=bool, default=False)
+    parser.add_argument('--clustering', help = "Boolean for using clustering or not.", type=bool, default=True)
     
     
     
@@ -43,8 +43,8 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     # Load timeline and create per-window event times (length = obs_window)
     
     
-    CLUSTERING = clustering
     
+    CLUSTERING = clustering
     days = np.load(days_data_path)
     # Load the dataset 
     timeseries_features = np.load(file=timeseries_data_path) # shape: (N_stations, T_timestamps, F_features)
@@ -275,7 +275,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
             num_clusters=num_clusters,
             loss_criterion=loss_criterion,
             optimizer=optimizer, scheduler=scheduler,
-            val_metric_criterion=None,
+            val_metric_criterion=BinaryF1Score(threshold=threshold_tp),,
             log_dir=f"./runs/{selected_model}",
             not_learning_limit=not_learning_limit,
             gamma=gamma,
