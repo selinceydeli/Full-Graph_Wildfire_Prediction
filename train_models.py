@@ -5,14 +5,15 @@ import scipy.sparse as sp
 
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
-from model.disjoint_st_baseline import DisjointSTModel
+# from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
-from utils.train_utils import train_model
+from utils.train_utils import train_model, train_model_clustering
 from utils.eval_utils import evaluate_model
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
 
-MODEL_NAMES = ["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"]
+MODEL_NAMES = ["vanilla_gcnn", "parametric_gtcnn", "parametric_gtcnn_event"] # removed: "disjoint_st_baseline"
 SELECTED_MODEL = MODEL_NAMES[2] # choose model here
+CLUSTERING = True # should only be True for parametric_gtcnn models (event based and normal)
 
 def main():
     # Load timeline and create per-window event times (length = obs_window)
@@ -115,7 +116,18 @@ def main():
     tst_X = impute_nan_with_feature_mean(tst_X, show_nan_info=True)
 
     # Define the model
-    if SELECTED_MODEL == "parametric_gtcnn":
+    if SELECTED_MODEL == "vanilla_gcnn":
+        in_channels = n_features * obs_window
+        model = VanillaGCN(
+            S_spatial=A,
+            in_channels=in_channels,
+            hidden_channels=24,
+            out_channels=1,
+            num_layers=10,
+            dropout=0.1
+        ).to(device)
+    
+    elif SELECTED_MODEL == "parametric_gtcnn":
         model = ParametricGTCNN(
             S_spatial=A,
             T=obs_window,
@@ -127,29 +139,6 @@ def main():
             device=device
         ).to(device)
 
-    elif SELECTED_MODEL == "disjoint_st_baseline":
-        model = DisjointSTModel(
-            S_spatial=A,
-            T=obs_window,
-            F_in=n_features,
-            spatial_hidden=(64, 64),
-            temporal_hidden=64,
-            K=2,
-            order="ST",
-            device=device
-        ).to(device)
-
-    elif SELECTED_MODEL == "vanilla_gcnn":
-        in_channels = n_features * obs_window
-        model = VanillaGCN(
-            S_spatial=A,
-            in_channels=in_channels,
-            hidden_channels=24,
-            out_channels=1,
-            num_layers=10,
-            dropout=0.1
-        ).to(device)
-
     elif SELECTED_MODEL == "parametric_gtcnn_event":
         # If you updated the class to take obs_window (recommended):
         model = ParametricGTCNN_Event(
@@ -159,11 +148,28 @@ def main():
             init_s=(0.0,1.0,1.0,0.0), kernel="exp", tau=3.0, max_back_hops=3,
             device=device
         ).to(device)
+    
+    # elif SELECTED_MODEL == "disjoint_st_baseline":
+    #     model = DisjointSTModel(
+    #         S_spatial=A,
+    #         T=obs_window,
+    #         F_in=n_features,
+    #         spatial_hidden=(64, 64),
+    #         temporal_hidden=64,
+    #         K=2,
+    #         order="ST",
+    #         device=device
+    #     ).to(device)
 
     # Model-specific reshaping
-    if SELECTED_MODEL in ["parametric_gtcnn", "disjoint_st_baseline"]:
-        # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
-        trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
+    if SELECTED_MODEL in ["vanilla_gcnn"]:
+        # [B,N,T,F] -> [B,N,F*T]
+        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3)
+        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
+        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
+    elif SELECTED_MODEL in ["parametric_gtcnn"]:
+        # [B,N,T,F] -> [B,F,N,T]
+        trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
         tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
     elif SELECTED_MODEL in ["parametric_gtcnn_event"]:
@@ -171,18 +177,20 @@ def main():
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
-    elif SELECTED_MODEL in ["vanilla_gcnn"]:
-        # [B,N,T,F] -> [B,N,F*T]
-        trn_X = trn_X.permute(0, 1, 3, 2).flatten(2, 3) # TODO: check if this is correct
-        val_X = val_X.permute(0, 1, 3, 2).flatten(2, 3)
-        tst_X = tst_X.permute(0, 1, 3, 2).flatten(2, 3)
+    # elif SELECTED_MODEL in ["disjoint_st_baseline"]:
+    #     # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
+    #     trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
+    #     val_X = val_X.permute(0, 3, 1, 2).flatten(2, 3)
+    #     tst_X = tst_X.permute(0, 3, 1, 2).flatten(2, 3)
 
     # Train config
-    gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0
+    gamma = 1e-4 if SELECTED_MODEL == "parametric_gtcnn" else 0.0 # TODO: should it be non-zero for event-based too?
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    num_epochs = 50
+    num_epochs = 10 #50
     batch_size = 16
+    not_learning_limit=15
+    num_clusters = 50 # only used if CLUSTERING=True
 
     loss_criterion = torch.nn.BCEWithLogitsLoss()
 
@@ -190,24 +198,51 @@ def main():
     training_start = time.time()
     print("Training starts with model:", SELECTED_MODEL)
 
-    best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
-        model,
-        model_name=SELECTED_MODEL,
-        training_data=trn_X.to(device),
-        validation_data=val_X.to(device),
-        single_step_trn_labels=trn_y.to(device),
-        single_step_val_labels=val_y.to(device),
-        num_epochs=num_epochs, batch_size=batch_size,
-        loss_criterion=loss_criterion,
-        optimizer=optimizer, scheduler=scheduler,
-        val_metric_criterion=None,
-        log_dir=f"./runs/{SELECTED_MODEL}",
-        not_learning_limit=15,
-        gamma=gamma,
-        trn_event_times=trn_evt,       # pass event times (numpy) to train
-        val_event_times=val_evt        # pass event times (numpy) to val
-    )
+    if CLUSTERING:
+        if SELECTED_MODEL not in ["parametric_gtcnn", "parametric_gtcnn_event"]:
+            print("Clustering should only be used with parametric_gtcnn model (event based or normal).")
+            return None
+        best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model_clustering(
+            model=model,
+            model_name=SELECTED_MODEL,
+            S_spatial=A,
+            training_data=trn_X.to(device),
+            validation_data=val_X.to(device),
+            single_step_trn_labels=trn_y.to(device),
+            single_step_val_labels=val_y.to(device),
+            num_epochs=num_epochs,
+            batch_size=batch_size,
+            num_clusters=num_clusters,
+            loss_criterion=loss_criterion,
+            optimizer=optimizer, scheduler=scheduler,
+            val_metric_criterion=None,
+            log_dir=f"./runs/{SELECTED_MODEL}",
+            not_learning_limit=not_learning_limit,
+            gamma=gamma,
+            trn_event_times=trn_evt,       # pass event times (numpy) to train
+            val_event_times=val_evt        # pass event times (numpy) to val
+        )
+    else:
+        best_model, epoch_best, trn_loss_per_epoch, val_loss_per_epoch = train_model(
+            model = model,
+            model_name=SELECTED_MODEL,
+            training_data=trn_X.to(device),
+            validation_data=val_X.to(device),
+            single_step_trn_labels=trn_y.to(device),
+            single_step_val_labels=val_y.to(device),
+            num_epochs=num_epochs, batch_size=batch_size,
+            loss_criterion=loss_criterion,
+            optimizer=optimizer, scheduler=scheduler,
+            val_metric_criterion=None,
+            log_dir=f"./runs/{SELECTED_MODEL}",
+            not_learning_limit=not_learning_limit,
+            gamma=gamma,
+            trn_event_times=trn_evt,       # pass event times (numpy) to train
+            val_event_times=val_evt        # pass event times (numpy) to val
+        )
     
+    # TODO: save the best model?
+
     training_end = time.time()
     print(f"Training took {training_end - training_start} seconds.")
 
@@ -230,4 +265,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
