@@ -6,7 +6,7 @@ import argparse
 from typing import List 
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
-from model.disjoint_st_baseline import DisjointSTModel
+# from model.disjoint_st_baseline import DisjointSTModel
 from model.vanilla_gcnn import VanillaGCN
 from utils.train_utils import train_model, train_model_clustering
 from utils.eval_utils import evaluate_model
