@@ -83,7 +83,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         splits=splits,
         pred_horizon=pred_horizon,
         obs_window=obs_window,
-        in_sample_mean=True,      # TODO: check if True or False
+        in_sample_mean=True,
         days=days,
         return_event_times=True   # needed for the event-based GTCNN model
     )
