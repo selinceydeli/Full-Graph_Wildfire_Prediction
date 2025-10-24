@@ -35,7 +35,8 @@ class ParametricGTCNN(nn.Module):
 
         # Define base graphs
         S = to_csr(S_spatial)
-        N = S.shape[0]; self.N, self.T = N, int(T)
+        N = S.shape[0]
+        self.T = int(T)
         S_T = time_chain_adjacency(self.T)
 
         I_T = sp.eye(self.T, format='csr'); I_N = sp.eye(N, format='csr')
@@ -78,23 +79,58 @@ class ParametricGTCNN(nn.Module):
         A = (s00 * self.K00) + (s01 * self.K01) + (s10 * self.K10) + (s11 * self.K11)
         return torch_sparse_sym_norm(A)   # D^{-1/2} A D^{-1/2}
 
-    def _reshape_to_product_nodes(self, x: torch.Tensor) -> torch.Tensor:
+    def _reshape_to_product_nodes(self, x: torch.Tensor, N: int) -> torch.Tensor:
         # Accept [B,F,N,T] or [B,F,N*T]; return [B, T*N, F]
         if x.dim() == 3:
             B, F, NT = x.shape
-            assert NT == self.N * self.T, "Input flattened dim != N*T"
-            x = x.view(B, F, self.N, self.T)
+            print(x.shape)
+            print(N)
+            print(N * self.T)
+            assert NT == N * self.T, "Input flattened dim != N*T"
+            x = x.view(B, F, N, self.T)
         elif x.dim() == 4:
             B, F, N, T = x.shape
-            assert (N, T) == (self.N, self.T)
+            assert (N, T) == (N, self.T)
         else:
             raise ValueError("Expected x with 3 or 4 dims: [B,F,N*T] or [B,F,N,T]")
-        return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * self.N, self.F_in)
+        return x.permute(0, 3, 2, 1).contiguous().view(x.size(0), self.T * N, self.F_in)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _current_A_hat_subgraph(self, adj_matrix):
+        # Define base graphs
+        S = to_csr(adj_matrix)
+        N = S.shape[0]
+
+        S_T = time_chain_adjacency(self.T)
+        I_T = sp.eye(self.T, format='csr')
+        I_N = sp.eye(N, format='csr')
+
+        # Define Kronecker blocks
+        K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr'))           # I ⊗ I
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S, format='csr'))           # I ⊗ S
+        K10 = scipy_to_torch_sparse(sp.kron(S_T, I_N, format='csr'))           # S_T ⊗ I
+        K11 = scipy_to_torch_sparse(sp.kron(S_T, S, format='csr'))           # S_T ⊗ S
+
+        # Use relu so negative s do not create negative edges
+        s00 = torch.relu(self.s_00)
+        s01 = torch.relu(self.s_01)
+        s10 = torch.relu(self.s_10)
+        s11 = torch.relu(self.s_11)
+
+        A_hat = (s00 * K00) + (s01 * K01) + (s10 * K10) + (s11 * K11)
+        return torch_sparse_sym_norm(A_hat)  
+
+    def forward(self, x: torch.Tensor, adj_matrix: torch.Tensor = None) -> torch.Tensor:
         B = x.size(0)
-        X_prod = self._reshape_to_product_nodes(x)         # [B, T*N, F]
-        A_hat = self._current_A_hat()                      # sparse [T*N, T*N], same for all items
+
+        if adj_matrix != None:
+            A_hat = self._current_A_hat_subgraph(adj_matrix)
+            N = adj_matrix.shape[0]
+        else:
+            A_hat = self._current_A_hat()
+            N = A_hat.size(0) // self.T
+            
+
+        X_prod = self._reshape_to_product_nodes(x, N)         # [B, T*N, F]                     # sparse [T*N, T*N], same for all items
 
         outs = []
         for b in range(B):
@@ -104,7 +140,7 @@ class ParametricGTCNN(nn.Module):
                 H = self.act(H)
                 H = self.dropout(H)
             # [T*N, C] -> [T,N,C] -> pool over time -> [N,C]
-            H = H.view(self.T, self.N, -1)
+            H = H.view(self.T, N, -1)
             H_pool = H.mean(dim=0) if self.pool == "mean" else H[-1]
             y_hat = self.head(H_pool).squeeze(-1)          # [N]
             outs.append(y_hat)

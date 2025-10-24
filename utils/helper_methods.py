@@ -5,6 +5,7 @@ import numpy as np
 import scipy.sparse as sp
 from datetime import datetime
 import torch
+from sklearn.cluster import SpectralClustering
 
 # --- Helper methods for sparse tensor conversion ---
 def scipy_to_torch_sparse(A: sp.spmatrix, device=None) -> torch.Tensor:
@@ -46,42 +47,69 @@ def torch_sparse_row_norm(A: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
 
 
 # --- Helper method for dataset creation ---
-def create_forecasting_dataset(graph_signals,
+def create_forecasting_dataset(features: np.ndarray,
+                               labels: np.ndarray,
                                splits: list,
                                pred_horizon: int,
                                obs_window: int,
-                               in_sample_mean: bool):
-    
-    T = graph_signals.shape[1]
+                               in_sample_mean: bool = True,
+                               days=None,
+                               return_event_times=False):
+    """
+    Creates a forecasting dataset for node-level prediction.
+    features = ['dist_to_water', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd', 'pres']
+    """
+
+    N, T, F = features.shape
+
+    # Split indices
     max_idx_trn = int(T * splits[0])
     max_idx_val = int(T * sum(splits[:-1]))
-    split_idx = np.split(np.arange(T), [max_idx_trn , max_idx_val])
+    split_idx = np.split(np.arange(T), [max_idx_trn, max_idx_val])
 
     data_dict = {}
     data_type = ['trn', 'val', 'tst']
 
+    # Optionally normalize features (exclude label)
     if in_sample_mean:
-        in_sample_means = graph_signals[:,:max_idx_trn].mean(axis = 1, keepdims= True)
-        data = graph_signals - in_sample_means
+        in_sample_means = features[:, :max_idx_trn, :].mean(axis=1, keepdims=True)
+        data = features - in_sample_means
         data_dict["in_sample_means"] = in_sample_means
     else:
-        data = graph_signals
+        data = features
 
-    for i in range(3):
-
-        split_data = data[:,split_idx[i]]
+    for i in range(len(data_type)):
+        idxs = split_idx[i]
+        split_features = data[:, idxs, :]   # [N, T_split, F]
+        split_labels = labels[:, idxs]      # [N, T_split]
         data_points = []
         targets = []
+        evt_times = [] if return_event_times else None
 
-        for j in range(len(split_idx[i])):
-            try:        
-                targets.append(split_data[:, list(range(j + obs_window, j + obs_window + pred_horizon))])
-                data_points.append(split_data[:, list(range(j,j+obs_window))])
-            except:
-                break
-        
-        data_dict[data_type[i]] = {'data': np.stack(data_points, axis=0),
-                                    'labels': np.stack(targets, axis=0)}
+        T_split = split_features.shape[1]
+        L = obs_window + pred_horizon
+        B = max(0, T_split - L + 1)
+
+        for j in range(B):
+            # Input features: [N, obs_window, F]
+            data_points.append(split_features[:, j:j+obs_window, :])
+            # Target labels: [N, pred_horizon] (single true label)
+            targets.append(split_labels[:, j+obs_window:j+obs_window+pred_horizon])
+
+            if return_event_times:
+                win_days = days[idxs[j:j+obs_window]]  # datetime64
+                dt = (win_days.astype('datetime64[m]') - win_days[0]).astype('timedelta64[m]').astype(float) / (60*24.0)
+                evt_times.append(dt.astype(np.float32))
+
+        pack = {
+            'data': np.stack(data_points, axis=0),    # [B, N, obs_window, F]
+            'labels': np.stack(targets, axis=0)       # [B, N, pred_horizon]
+        }
+
+        if return_event_times:
+            pack['event_times'] = np.stack(evt_times, axis=0)  # [B, obs_window]
+
+        data_dict[data_type[i]] = pack
 
     print("dataset has been created.")
     print("-------------------------")
@@ -90,6 +118,24 @@ def create_forecasting_dataset(graph_signals,
     print(f"{data_dict['tst']['data'].shape[0]} test data points")
 
     return data_dict
+
+
+def impute_nan_with_feature_mean(X: torch.Tensor, show_nan_info: bool = False) -> torch.Tensor:
+    """Impute NaN values in the input tensor X with the mean value of each feature across all nodes and time steps."""
+    if show_nan_info:
+        nan_mask = torch.isnan(X)
+        print("Number of NaNs:", nan_mask.sum().item())
+
+        # If you want to see some example indices of NaNs, uncomment below:
+        # b_idx, n_idx, t_idx, f_idx = torch.where(nan_mask)
+        # print("Example bad indices:")
+        # for i in range(min(10, len(b_idx))):
+        #     print(f"Batch {b_idx[i]}, Node {n_idx[i]}, Time {t_idx[i]}, Feature {f_idx[i]}")
+
+    # Mean imputation per feature
+    mean_vals = torch.nanmean(X, dim=(0,1,2), keepdim=True)
+    X_imputed = torch.where(nan_mask, mean_vals, X)
+    return X_imputed
 
 
 # --- Helper methods for product graph creation ---
@@ -190,7 +236,7 @@ def knn_graph(D, k):
 
 
 # --- Helper method for plotting train and val losses ---
-def plot_losses(trn_losses, val_losses, best_epoch=None, title="GTCNN training", model_name = "parametric_GTCNN", save_path=None):
+def plot_losses(trn_losses, val_losses, best_epoch=None, loss_name="BCE",title="GTCNN training", model_name = "parametric_GTCNN", save_path=None):
     trn_losses = np.asarray(trn_losses, dtype=float)
     val_losses = np.asarray(val_losses, dtype=float)
     epochs = np.arange(1, len(trn_losses) + 1)
@@ -202,7 +248,7 @@ def plot_losses(trn_losses, val_losses, best_epoch=None, title="GTCNN training",
         # best_epoch is 0-based in the trainer; +1 to align with 1-based x-axis
         plt.axvline(best_epoch + 1, linestyle='--', linewidth=1, label=f'best (epoch {best_epoch})')
     plt.xlabel("epoch")
-    plt.ylabel("loss (MSE)")
+    plt.ylabel(f"loss ({loss_name})")
     plt.title(title)
     plt.grid(True, linestyle="--", alpha=0.4)
     plt.legend()
@@ -218,3 +264,18 @@ def plot_losses(trn_losses, val_losses, best_epoch=None, title="GTCNN training",
     print(f"Saved loss plot to: {save_path}")
     return save_path
 
+# --- Clustering ---
+
+def cluster_graph(A: sp.spmatrix, num_clusters: int = 50):
+    """
+    Cluster the graph using spectral clustering.
+    inputs:
+        A: Sparse adjacency matrix of the graph to be clustered
+        num_clusters: Number of clusters to form
+    outputs:
+        labels: Cluster labels for each node
+    """
+    sc = SpectralClustering(n_clusters=num_clusters, affinity='precomputed')
+    sc.fit_predict(A)
+    clustering_labels = sc.labels_
+    return clustering_labels
