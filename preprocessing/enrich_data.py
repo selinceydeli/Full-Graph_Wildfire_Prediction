@@ -62,6 +62,19 @@ def extract_fire_day(fire_data: gpd.geodataframe.GeoDataFrame) -> gpd.geodatafra
     fire_data["DAY"] = pd.to_datetime(fire_data["FIREDATE"], format='mixed').dt.date
     return fire_data
 
+def extrapolate_fires(fire_data: gpd.GeoDataFrame, days_to_extrapolate=3) -> gpd.GeoDataFrame:
+    dfs = []
+    fire_data["DAY"] = pd.to_datetime(fire_data["DAY"])
+    
+    for i in range(1, days_to_extrapolate + 1):
+        row_next = fire_data.copy()
+        row_next["DAY"] = row_next["DAY"] + pd.DateOffset(days=i)
+        dfs.append(row_next)
+    
+    df = pd.concat([fire_data] + dfs, ignore_index=True)
+    df["DAY"] = df["DAY"].dt.date
+    return gpd.GeoDataFrame(df, geometry="geometry", crs=fire_data.crs)
+
 
 def enrich_with_intensity_data(graph, wildfire_severity_dir, date):
     graph["fire_intensity"] = 0

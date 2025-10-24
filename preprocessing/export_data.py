@@ -25,7 +25,7 @@ def export_distance_matrix(
 
     # Compute centroid coordinates and pairwise distances
     centroids = grid.geometry.centroid
-    P = np.column_stack([centroids.x.values, centroids.y.values]).astype(float)
+    P = np.column_stack([centroids.x.values, centroids.y.values]).astype(np.float32)
     diff = P[:, None, :] - P[None, :, :]
     A = np.sqrt(np.sum(diff * diff, axis=2))
     np.fill_diagonal(A, 0.0)
@@ -48,7 +48,7 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
     long = long.dropna(subset=["node_id", "DAY"])
     long["node_id"] = long["node_id"].astype(int)
 
-    long = long.drop(columns=[c for c in ["geometry", "centroid_grid"] if c in long.columns], errors="ignore")
+    long = long.drop(columns=[c for c in ["geometry", "centroid_grid", "FireSeason", "30DAYS", "7DAYS", "prcp"] if c in long.columns], errors="ignore")
 
     # Aggregate to get 1 row per (node_id, DAY)
     key = ["node_id", "DAY"]
@@ -67,7 +67,7 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
         sum_cols = {"prcp", "fire_intensity", "30DAYS", "7DAYS"}
         max_cols = {"has_fire", "FireSeason"}
         mean_cols = {"tavg", "tmin", "tmax", "wspd", "pres"}
-
+        print("I got here")
         agg = {}
         for c in value_cols:
             if c in sum_cols:
@@ -78,8 +78,9 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
                 agg[c] = "mean"
             else:
                 agg[c] = "first"
-
+        
         long = long.groupby(key, as_index=False).agg(agg)
+        
         long.to_pickle(collapse_cache)
 
     # Create the rectangular panel
@@ -87,7 +88,7 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
     days = np.sort(long["DAY"].unique())
     panel_index = pd.MultiIndex.from_product([nodes, days], names=key)
     panel = long.set_index(key).reindex(panel_index)
-
+    
     static_candidates = {"PROVINCE", "BROADLEA", "CONIFER", "MIXED", "TRANSIT", "OTHERNATLC",
                          "AGRIAREAS", "ARTIFSURF", "OTHERLC", "PERCNA2K", "dist_to_water"}
     static_cols = [c for c in panel.columns if c in static_candidates]
@@ -101,7 +102,6 @@ def construct_timeseries_data(graphs: list, reconstruct=False, save_path="data/t
     bool_cols = list(num_panel.select_dtypes(include=["bool"]).columns)
     if bool_cols:
         num_panel[bool_cols] = num_panel[bool_cols].astype(float)
-
     # Print dropped non-numeric columns
     dropped = [c for c in panel.columns if c not in num_panel.columns]
     if dropped:
