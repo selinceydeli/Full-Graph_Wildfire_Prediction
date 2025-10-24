@@ -4,6 +4,7 @@ import numpy as np
 from tensorboardX import SummaryWriter
 from typing import Optional
 from tqdm import tqdm 
+from torcheval.metrics import BinaryF1Score
 
 # Helper methods for training the parametric GTCNN 
 def _l1_over_s_params(model: torch.nn.Module) -> torch.Tensor:
@@ -87,9 +88,13 @@ def compute_loss_in_chunks(model: torch.nn.Module,
                 pred = model(batch_x, event_times_batch=evt_batch)   # -> [batch, N]
             else:
                 pred = model(batch_x)                                # -> [batch, N]
-
-            loss = criterion(pred, batch_y)
-            losses.append(float(loss.item()))
+            
+            if type(criterion) == type(BinaryF1Score()):
+                criterion.update(pred.view(-1), batch_y.view(-1))
+                
+            else:
+                loss = criterion(pred, batch_y)
+                losses.append(float(loss.item()))   
             
             # Debug block
             # print("Loss computations:")
@@ -99,7 +104,11 @@ def compute_loss_in_chunks(model: torch.nn.Module,
             # print()
 
     val_loss = float(np.mean(losses)) if losses else 0.0
-    return round(val_loss, 3)
+
+    if type(criterion) == type(BinaryF1Score()):
+        val_loss = criterion.compute()
+ 
+    return val_loss
 
 
 # Main training loop 
@@ -123,27 +132,28 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
     n_trn_samples = training_data.size()[0]
     n_batches_per_epoch = int(n_trn_samples / batch_size)
 
-    best_val_metric = 10e10
+    best_val_loss = 10e10
     print(f"{n_batches_per_epoch} batches per epoch "
         f"({n_trn_samples} trn samples in total | batch_size: {batch_size})")
 
     not_learning_count = 0
     for epoch in tqdm(range(num_epochs)):
 
-        permutation = torch.randperm(n_trn_samples)  # shuffle the training data
+        # permutation = torch.randperm(n_trn_samples)  # shuffle the training data
         batch_losses = []
 
         model.train()
-        for batch_idx in tqdm(range(0, n_trn_samples, batch_size)):
-
-            batch_indices = permutation[batch_idx:batch_idx + batch_size]
+        for batch_idx in tqdm(range(0, n_trn_samples, batch_size // 2)):
+            batch_indices = np.arange(batch_idx, min(n_trn_samples - 1, batch_idx + batch_size), 1)
+            # batch_indices = permutation[batch_idx:batch_idx + batch_size]
+            # print("Batch Index:" batch_idx, training_data.shape)
             batch_trn_data = training_data[batch_indices]
             batch_one_step_trn_labels = single_step_trn_labels[batch_indices]
 
             evt_batch = None
             if trn_event_times is not None:
                 # trn_event_times is numpy [B, T]
-                evt_batch = trn_event_times[batch_indices.cpu().numpy()]
+                evt_batch = trn_event_times[batch_indices]
 
             if "event" in model.__class__.__name__.lower():
                 one_step_pred_trn = model(batch_trn_data, event_times_batch=evt_batch)
@@ -180,7 +190,7 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
         tensorboard.add_scalar('val-metric', val_metric, epoch)
 
         if scheduler:
-            scheduler.step(val_metric)
+            scheduler.step(val_loss)
 
         # Log diff, lr, and current L1 on s_*
         diff_loss = abs(epoch_trn_loss - val_loss)
@@ -201,18 +211,20 @@ def train_model(model, model_name, training_data, validation_data, single_step_t
             tensorboard.add_scalar('l1_s_params', _l1_over_s_params(model).item(), epoch)
 
         print(f"Epoch {epoch}"
-            f"\n\t train-loss: {round(epoch_trn_loss, 3)} | valid-loss: {round(val_loss, 3)} "
+            f"\n\t train-loss: {epoch_trn_loss} | valid-loss: {val_loss} "
             f"\t| valid-metric: {val_metric} | lr: {optimizer.param_groups[0]['lr']}")
+        
+        tensorboard.flush()
 
         # Early stopping bookkeeping
-        if val_metric < best_val_metric:
+        if val_loss < best_val_loss:
             not_learning_count = 0
-            print(f"\n\t\t\t\tNew best val_metric: {val_metric}. Saving model...\n")
+            print(f"\n\t\t\t\tNew best val_metric: {val_loss}. Saving model...\n")
             end = time.time()
             print(f"Training took {end - start} seconds.")
             torch.save({'epoch': epoch, 'model_state_dict': model.state_dict()},
                     log_dir + f"/best_one_step_{model_name}.pth")
-            best_val_metric = val_metric
+            best_val_loss = val_loss
         else:
             not_learning_count += 1
 
