@@ -13,7 +13,7 @@ from utils.eval_utils import evaluate_model
 from losses.focal_loss import FocalLoss
 from losses.dice_loss import DiceLoss
 from utils.helper_methods import plot_losses, create_forecasting_dataset, knn_graph, impute_nan_with_feature_mean
-
+from torcheval.metrics import BinaryF1Score
 
 
 def parse_args():
@@ -29,7 +29,8 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--selected_loss_function', choices=["bce", "focal", "dice"], type=str, default="bce")
     parser.add_argument('--selected_model', type=str, choices=["parametric_gtcnn", "disjoint_st_baseline", "vanilla_gcnn", "parametric_gtcnn_event"], default="vanilla_gcnn")
-    parser.add_argument('--train_val_test_split', nargs=3, type=int, default=[0.6, 0.2, 0.2])
+    parser.add_argument('--train_val_test_split', nargs=3, type=float, default=[0.6, 0.2, 0.2])
+    parser.add_argument('--threshold_tp', help = "Threshold for the confidence needed to be a true positive.", type=float, default=0.5)
     
     
     
@@ -37,7 +38,7 @@ def parse_args():
 
 def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance_matrix_filepath:str,
         pred_horizon:int, obs_window:int, kLint, num_epochs:int, batch_size:int, selected_loss_function:str,
-        selected_model:str, train_val_test_split:List[int]):
+        selected_model:str, train_val_test_split:List[int], threshold_tp:float):
     # Load timeline and create per-window event times (length = obs_window)
     
     
@@ -86,7 +87,7 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         splits=splits,
         pred_horizon=pred_horizon,
         obs_window=obs_window,
-        in_sample_mean=False,
+        in_sample_mean=True,
         days=days,
         return_event_times=True   # needed for the event-based GTCNN model
     )
@@ -137,6 +138,8 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
     trn_X = impute_nan_with_feature_mean(trn_X, show_nan_info=True)
     val_X = impute_nan_with_feature_mean(val_X, show_nan_info=True)
     tst_X = impute_nan_with_feature_mean(tst_X, show_nan_info=True)
+    
+    print("Hi")
 
     # Define the model
     if selected_model == "parametric_gtcnn":
@@ -231,9 +234,9 @@ def main(days_data_path:str, timeseries_data_path:str, labels_path:str, distance
         num_epochs=num_epochs, batch_size=batch_size,
         loss_criterion=loss_criterion,
         optimizer=optimizer, scheduler=scheduler,
-        val_metric_criterion=None,
+        val_metric_criterion=BinaryF1Score(threshold=threshold_tp),
         log_dir=f"./runs/{selected_model}",
-        not_learning_limit=15,
+        not_learning_limit=100,
         gamma=gamma,
         trn_event_times=trn_evt,       # pass event times (numpy) to train
         val_event_times=val_evt        # pass event times (numpy) to val
@@ -274,6 +277,7 @@ if __name__ == "__main__":
     selected_loss_function = args.selected_loss_function
     selected_model = args.selected_model
     train_val_test_split = args.train_val_test_split
+    threshold_tp = args.threshold_tp
     main(days_data_path, timeseries_data_path, labels_path, distance_matrix_filepath, pred_horizon, obs_window, k,
-         num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split)
+         num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split, threshold_tp)
 
