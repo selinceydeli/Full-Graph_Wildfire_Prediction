@@ -81,7 +81,7 @@ Here are some example commands to train the selected model:
 ```bash
 python3 train_models.py \
   --selected_model vanilla_gcnn \
-  --selected_loss_function bce \
+  --selected_loss_function dice \
   --obs_window 4 \
   --pred_horizon 1 \
   --k 4 \
@@ -105,9 +105,42 @@ python3 train_models.py \
 ```bash
 python3 train_models.py \
   --selected_model parametric_gtcnn_event \
-  --clustering True \
   --selected_loss_function focal \
   --num_epochs 10 \
   --batch_size 16 \
   --clustering True
+```
+
+## 4) Run Experiments (Ablations)
+
+This repo includes a bash script to automate ablation studies and aggregate results across repeated runs.
+
+### 4.1 Setup
+
+1. Save the script as `run_experiments.sh` in the project root and make it executable:
+
+```bash
+chmod +x run_experiments.sh
+```
+
+2. The script is compatible with macOS’s default Bash 3.2. No extra shell setup needed.
+
+### 4.2 Run the experiments
+
+Run **models** ablation:
+
+```bash
+./run_experiments.sh models
+```
+
+Run **losses** ablation:
+
+```bash
+./run_experiments.sh losses
+```
+
+Run **both**:
+
+```bash
+./run_experiments.sh all
 ```
