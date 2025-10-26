@@ -159,7 +159,8 @@ PY
 read -r -d '' EXP_MODELS <<'EOF' || true
 tag=models_ablation__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True
 tag=models_ablation__parametric_gtcnn__focal__clustered       model=parametric_gtcnn       loss=focal cluster=True
-tag=models_ablation__vanilla_gcnn__focal__fullbatch           model=vanilla_gcnn           loss=focal cluster=False
+tag=models_ablation__vanilla_gcnn__focal__fullbatch           model=vanilla_gcnn           loss=focal
+tag=models_ablation__simple_gc__focal__fullbatch              model=simple_gc              loss=focal
 EOF
 
 read -r -d '' EXP_LOSSES <<'EOF' || true
