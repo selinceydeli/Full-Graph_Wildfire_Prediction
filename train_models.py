@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--selected_loss_function', choices=["bce", "weighted_bce", "focal", "dice"], type=str,
-                        default="bce")
+                        default="weighted_bce")
     parser.add_argument('--selected_model', type=str,
                         choices=["parametric_gtcnn", "vanilla_gcnn", "parametric_gtcnn_event", "simple_gc"],
                         default="simple_gc")
@@ -181,6 +181,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
             in_channels=in_channels,
             out_channels=1,
         ).to(device)
+
     # elif SELECTED_MODEL == "disjoint_st_baseline":
     #     model = DisjointSTModel(
     #         S_spatial=A,
@@ -209,7 +210,6 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
-
     # elif SELECTED_MODEL in ["disjoint_st_baseline"]:
     #     # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
     #     trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
