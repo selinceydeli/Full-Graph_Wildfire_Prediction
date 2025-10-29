@@ -306,7 +306,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
-                title=f"{selected_model} — train/val loss", model_name=selected_model, save_path=None)
+                title=f"{selected_model} — {selected_loss_function} - train/val loss", model_name=selected_model, loss_name=selected_loss_function, save_path=None)
 
     # Evaluate the best model on the test set
     metrics = evaluate_model(

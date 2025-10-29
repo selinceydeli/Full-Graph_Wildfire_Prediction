@@ -141,7 +141,7 @@ for k in keys:
         mean = arr.mean(axis=0).tolist()
         std = (arr.std(axis=0, ddof=1).tolist() if arr.shape[0] > 1 else [[0.0]*len(arr[0][0])]*len(arr[0]))
         summary_rows.append([k, json.dumps(mean), json.dumps(std)]); continue
-    summary_rows.append([k, json.dumps(vals), ""))
+    summary_rows.append([k, json.dumps(vals), ""])
 
 csv_path = outdir / "metrics_summary.csv"
 with open(csv_path, "w", newline="") as f:
@@ -190,3 +190,26 @@ run_group() {
     [ -z "${line// }" ] && continue
     tag=""; model=""; loss=""; cluster=""; obs_window=""
     for kv in $line; do
+      k="${kv%%=*}"; v="${kv#*=}"
+      case "$k" in
+        tag) tag="$v" ;;
+        model) model="$v" ;;
+        loss) loss="$v" ;;
+        cluster) cluster="$v" ;;
+        obs_window) obs_window="$v" ;;
+      esac
+    done
+    run_one "$tag" "$model" "$loss" "$cluster" "$obs_window"
+  done <<EOF
+$list
+EOF
+}
+
+case "$STUDY" in
+  models)         run_group "$EXP_MODELS" ;;
+  losses)         run_group "$EXP_LOSSES" ;;
+  obs_window)     run_group "$EXP_OBS_WINDOW" ;;
+  all)            run_group "$EXP_MODELS"; run_group "$EXP_LOSSES"; run_group "$EXP_OBS_WINDOW" ;;
+esac
+
+echo "Done."
