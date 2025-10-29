@@ -4,7 +4,7 @@ set -euo pipefail
 # -----------------------------
 # Config
 # -----------------------------
-RUNS="${RUNS:-3}"
+RUNS="${RUNS:-1}"
 EPOCHS="${EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 ROOT_OUTDIR="${ROOT_OUTDIR:-experiments}"
@@ -164,16 +164,16 @@ PY
 # Experiment specs
 # -----------------------------
 read -r -d '' EXP_MODELS <<'EOF' || true
-tag=models_ablation__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True
-tag=models_ablation__parametric_gtcnn__focal__clustered       model=parametric_gtcnn       loss=focal cluster=True
-tag=models_ablation__vanilla_gcnn__focal__fullbatch           model=vanilla_gcnn           loss=focal
-tag=models_ablation__simple_gc__focal__fullbatch              model=simple_gc              loss=focal
+tag=models_ablation__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True obs_window=6
+tag=models_ablation__parametric_gtcnn__focal__clustered       model=parametric_gtcnn       loss=focal cluster=True obs_window=6
+tag=models_ablation__vanilla_gcnn__focal__fullbatch           model=vanilla_gcnn           loss=focal              obs_window=6
+tag=models_ablation__simple_gc__focal__fullbatch              model=simple_gc              loss=focal              obs_window=6
 EOF
 
 read -r -d '' EXP_LOSSES <<'EOF' || true
-tag=losses_ablation__parametric_gtcnn_event__dice__clustered         model=parametric_gtcnn_event loss=dice         cluster=True
-tag=losses_ablation__parametric_gtcnn_event__weighted_bce__clustered model=parametric_gtcnn_event loss=weighted_bce cluster=True
-tag=losses_ablation__parametric_gtcnn_event__bce__clustered          model=parametric_gtcnn_event loss=bce          cluster=True
+tag=losses_ablation__parametric_gtcnn_event__dice__clustered         model=parametric_gtcnn_event loss=dice         cluster=True obs_window=6
+tag=losses_ablation__parametric_gtcnn_event__weighted_bce__clustered model=parametric_gtcnn_event loss=weighted_bce cluster=True obs_window=6
+tag=losses_ablation__parametric_gtcnn_event__bce__clustered          model=parametric_gtcnn_event loss=bce          cluster=True obs_window=6
 EOF
 
 # obs_window tuning experiments
