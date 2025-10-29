@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import scipy.sparse as sp
 import argparse
+import random
 from typing import List
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
@@ -48,7 +49,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
          selected_model: str, train_val_test_split: List[int], threshold_tp: float, clustering: bool):
     # Load the days
     days = np.load(days_data_path)
-
+    
     # Load the dataset 
     timeseries_features = np.load(file=timeseries_data_path)  # shape: (N_stations, T_timestamps, F_features)
     timeseries_labels = np.load(file=labels_path)  # shape: (N_stations, T_timestamps)
@@ -338,5 +339,13 @@ if __name__ == "__main__":
     train_val_test_split = args.train_val_test_split
     threshold_tp = args.threshold_tp
     clustering = args.clustering
+    
+    seed = 42 
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
     main(days_data_path, timeseries_data_path, labels_path, distance_matrix_filepath, pred_horizon, obs_window, k,
          num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split, threshold_tp, clustering)
