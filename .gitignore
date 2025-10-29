@@ -1,4 +1,11 @@
-data
+# data
+data/country_boundaries
+data/fire_data
+data/rivers
+data/wildfire_severity
+data/collapsed_long.pkl
+data/feat_cols.json
+data/graphs_per_day.pkl
 output
 __pycache__
 .DS_Store
