@@ -125,7 +125,15 @@ chmod +x run_experiments.sh
 
 2. The script is compatible with macOS’s default Bash 3.2. No extra shell setup needed.
 
-### 4.2 Run the experiments
+### 4.2 Run hyperparameter tuning
+
+Run tuning for **observation window** parameter:
+
+```bash
+./run_experiments.sh obs_window
+```
+
+### 4.3 Run the experiments
 
 Run **models** ablation:
 
