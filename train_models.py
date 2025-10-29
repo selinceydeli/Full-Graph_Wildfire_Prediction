@@ -293,7 +293,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
             optimizer=optimizer, scheduler=scheduler,
             val_metric_criterion=BinaryF1Score(threshold=threshold_tp),
             log_dir=f"./runs/{selected_model}",
-            not_learning_limit=15,
+            not_learning_limit=not_learning_limit,
             gamma=gamma,
             trn_event_times=trn_evt,  # pass event times (numpy) to train
             val_event_times=val_evt  # pass event times (numpy) to val

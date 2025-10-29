@@ -171,6 +171,7 @@ tag=models_ablation__simple_gc__focal__fullbatch              model=simple_gc   
 EOF
 
 read -r -d '' EXP_LOSSES <<'EOF' || true
+tag=losses_ablation__parametric_gtcnn_event__focal__clustered        model=parametric_gtcnn_event loss=focal        cluster=True obs_window=6
 tag=losses_ablation__parametric_gtcnn_event__dice__clustered         model=parametric_gtcnn_event loss=dice         cluster=True obs_window=6
 tag=losses_ablation__parametric_gtcnn_event__weighted_bce__clustered model=parametric_gtcnn_event loss=weighted_bce cluster=True obs_window=6
 tag=losses_ablation__parametric_gtcnn_event__bce__clustered          model=parametric_gtcnn_event loss=bce          cluster=True obs_window=6

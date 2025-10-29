@@ -1,9 +1,0 @@
-Experiment: models_ablation__parametric_gtcnn_event__focal__clustered__ow6
-Model: parametric_gtcnn_event
-Loss: focal
-Clustering: True
-Obs window: 6
-Runs: 1
-Epochs: 30
-Batch size: 16
-Started at: 20251029_155857
