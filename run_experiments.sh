@@ -11,11 +11,11 @@ ROOT_OUTDIR="${ROOT_OUTDIR:-experiments}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 DRY_RUN="${DRY_RUN:-0}"
 
-STUDY="${1:-all}"   # models | losses | all
+STUDY="${1:-all}"   # models | losses | obs | obswin | obs_window | all
 case "$STUDY" in
-  models|losses|all) ;;
+  models|losses|obs|obswin|obs_window|all) ;;
   *)
-    echo "Usage: $0 [models|losses|all]"
+    echo "Usage: $0 [models|losses|obs|obswin|obs_window|all]"
     echo "Env overrides: RUNS, EPOCHS, BATCH_SIZE, ROOT_OUTDIR, PYTHON_BIN, DRY_RUN"
     exit 1
     ;;
@@ -24,7 +24,7 @@ esac
 timestamp() { date +"%Y%m%d_%H%M%S"; }
 
 run_one() {
-  local tag="$1" model="$2" loss="$3" cluster="$4"
+  local tag="$1" model="$2" loss="$3" cluster="$4" obs_window="${5:-}"
 
   local ts outdir logdir
   ts="$(timestamp)"
@@ -37,17 +37,19 @@ Experiment: ${tag}
 Model: ${model}
 Loss: ${loss}
 Clustering: ${cluster}
+Obs window: ${obs_window}
 Runs: ${RUNS}
 Epochs: ${EPOCHS}
 Batch size: ${BATCH_SIZE}
 Started at: ${ts}
 EOF
 
+  # Write machine-readable config (obs_window may be null)
   cat > "${outdir}/config.json" <<EOF
-{"tag":"${tag}","model":"${model}","loss":"${loss}","clustering":"${cluster}","runs":${RUNS},"epochs":${EPOCHS},"batch_size":${BATCH_SIZE},"started_at":"${ts}"}
+{"tag":"${tag}","model":"${model}","loss":"${loss}","clustering":"${cluster}","obs_window":${obs_window:-null},"runs":${RUNS},"epochs":${EPOCHS},"batch_size":${BATCH_SIZE},"started_at":"${ts}"}
 EOF
 
-  echo ">>> Running ${tag} | model=${model} | loss=${loss} | clustering=${cluster} | runs=${RUNS}"
+  echo ">>> Running ${tag} | model=${model} | loss=${loss} | clustering=${cluster} | obs_window=${obs_window:-} | runs=${RUNS}"
 
   # training command
   cmd=( "$PYTHON_BIN" train_models.py
@@ -56,6 +58,11 @@ EOF
         --num_epochs "${EPOCHS}"
         --batch_size "${BATCH_SIZE}"
         --clustering "${cluster}" )
+
+  # only add obs_window flag if provided
+  if [ -n "${obs_window:-}" ]; then
+    cmd+=( --obs_window "${obs_window}" )
+  fi
 
   for i in $(seq 1 "${RUNS}"); do
     echo "=== ${tag} — run ${i}/${RUNS} ==="
@@ -148,13 +155,13 @@ PY
   mkdir -p "${ROOT_OUTDIR}"
   local index="${ROOT_OUTDIR}/_INDEX.csv"
   if [ ! -f "$index" ]; then
-    echo "timestamp,tag,model,loss,clustering,runs,epochs,batch_size,outdir" > "$index"
+    echo "timestamp,tag,model,loss,clustering,obs_window,runs,epochs,batch_size,outdir" > "$index"
   fi
-  echo "$(timestamp),${tag},${model},${loss},${cluster},${RUNS},${EPOCHS},${BATCH_SIZE},${outdir}" >> "$index"
+  echo "$(timestamp),${tag},${model},${loss},${cluster},${obs_window},${RUNS},${EPOCHS},${BATCH_SIZE},${outdir}" >> "$index"
 }
 
 # -----------------------------
-# Experiment specs as multiline strings
+# Experiment specs
 # -----------------------------
 read -r -d '' EXP_MODELS <<'EOF' || true
 tag=models_ablation__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True
@@ -169,12 +176,19 @@ tag=losses_ablation__parametric_gtcnn_event__weighted_bce__clustered model=param
 tag=losses_ablation__parametric_gtcnn_event__bce__clustered          model=parametric_gtcnn_event loss=bce          cluster=True
 EOF
 
+# obs_window tuning experiments
+read -r -d '' EXP_OBS_WINDOW <<'EOF' || true
+tag=models_ablation__parametric_gtcnn_event__focal__clustered__ow1 model=parametric_gtcnn_event loss=focal cluster=True obs_window=1
+tag=models_ablation__parametric_gtcnn_event__focal__clustered__ow4 model=parametric_gtcnn_event loss=focal cluster=True obs_window=4
+tag=models_ablation__parametric_gtcnn_event__focal__clustered__ow6 model=parametric_gtcnn_event loss=focal cluster=True obs_window=6
+EOF
+
 run_group() {
   local list="$1"
-  local line k v tag model loss cluster
+  local line k v tag model loss cluster obs_window
   while IFS= read -r line; do
     [ -z "${line// }" ] && continue
-    tag=""; model=""; loss=""; cluster=""
+    tag=""; model=""; loss=""; cluster=""; obs_window=""
     for kv in $line; do
       k="${kv%%=*}"; v="${kv#*=}"
       case "$k" in
@@ -182,18 +196,20 @@ run_group() {
         model) model="$v" ;;
         loss) loss="$v" ;;
         cluster) cluster="$v" ;;
+        obs_window) obs_window="$v" ;;
       esac
     done
-    run_one "$tag" "$model" "$loss" "$cluster"
+    run_one "$tag" "$model" "$loss" "$cluster" "$obs_window"
   done <<EOF
 $list
 EOF
 }
 
 case "$STUDY" in
-  models) run_group "$EXP_MODELS" ;;
-  losses) run_group "$EXP_LOSSES" ;;
-  all)    run_group "$EXP_MODELS"; run_group "$EXP_LOSSES" ;;
+  models)    run_group "$EXP_MODELS" ;;
+  losses)    run_group "$EXP_LOSSES" ;;
+  obs|obswin|obs_window) run_group "$EXP_OBS_WINDOW" ;;
+  all)       run_group "$EXP_MODELS"; run_group "$EXP_LOSSES"; run_group "$EXP_OBS_WINDOW" ;;
 esac
 
 echo "Done."
