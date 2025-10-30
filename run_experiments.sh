@@ -164,10 +164,10 @@ PY
 # Experiment specs
 # -----------------------------
 read -r -d '' EXP_MODELS <<'EOF' || true
-tag=models_ablation__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=dice cluster=True obs_window=6
-tag=models_ablation__parametric_gtcnn__focal__clustered       model=parametric_gtcnn       loss=dice cluster=True obs_window=6
-tag=models_ablation__vanilla_gcnn__focal__fullbatch           model=vanilla_gcnn           loss=dice              obs_window=6
-tag=models_ablation__simple_gc__focal__fullbatch              model=simple_gc              loss=dice              obs_window=6
+tag=models_ablation__parametric_gtcnn_event__dice__clustered model=parametric_gtcnn_event loss=dice cluster=True obs_window=6
+tag=models_ablation__parametric_gtcnn__dice__clustered       model=parametric_gtcnn       loss=dice cluster=True obs_window=6
+tag=models_ablation__vanilla_gcnn__dice__fullbatch           model=vanilla_gcnn           loss=dice              obs_window=4
+tag=models_ablation__simple_gc__dice__fullbatch              model=simple_gc              loss=dice              obs_window=4
 EOF
 
 read -r -d '' EXP_LOSSES <<'EOF' || true

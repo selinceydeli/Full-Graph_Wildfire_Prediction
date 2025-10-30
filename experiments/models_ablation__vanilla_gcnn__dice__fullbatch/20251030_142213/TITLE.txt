@@ -1,0 +1,9 @@
+Experiment: models_ablation__vanilla_gcnn__dice__fullbatch
+Model: vanilla_gcnn
+Loss: dice
+Clustering: 
+Obs window: 4
+Runs: 1
+Epochs: 50
+Batch size: 16
+Started at: 20251030_142213
