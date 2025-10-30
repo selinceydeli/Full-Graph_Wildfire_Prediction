@@ -221,7 +221,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
     gamma = 1e-4 if selected_model == "parametric_gtcnn" else 0.0  # TODO: should it be non-zero for event-based too?
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    not_learning_limit = 5
+    not_learning_limit = 15
     num_clusters = 50  # only used if CLUSTERING=True
 
     if selected_loss_function == "bce":
@@ -231,10 +231,11 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
             pos = trn_y.sum().item()
             total = trn_y.numel()
             neg = total - pos
+        max_cap = 50
         if pos <= 0:
             pos_weight_value = 1.0
         else:
-            pos_weight_value = neg / pos
+            pos_weight_value = min(max_cap, neg / pos)
         pos_weight = torch.tensor(pos_weight_value, dtype=torch.float32, device=device)
         pos_percentage = 100 * (pos / total)
         print(f"[Imbalance] percentage of train positives={pos_percentage:.2f}%, pos_weight={pos_weight_value:.2f}")
