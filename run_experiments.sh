@@ -168,6 +168,7 @@ tag=models_ablation__parametric_gtcnn_event__dice__clustered model=parametric_gt
 tag=models_ablation__parametric_gtcnn__dice__clustered       model=parametric_gtcnn       loss=dice cluster=True obs_window=6
 tag=models_ablation__vanilla_gcnn__dice__fullbatch           model=vanilla_gcnn           loss=dice              obs_window=4
 tag=models_ablation__simple_gc__dice__fullbatch              model=simple_gc              loss=dice              obs_window=4
+tag=original_data__parametric_gtcnn_event__dice__clustered   model=parametric_gtcnn_event loss=dice cluster=True obs_window=6
 EOF
 
 read -r -d '' EXP_LOSSES <<'EOF' || true
@@ -179,9 +180,9 @@ EOF
 
 # obs_window tuning experiments
 read -r -d '' EXP_OBS_WINDOW <<'EOF' || true
-tag=models_ablation__parametric_gtcnn_event__focal__clustered__ow1 model=parametric_gtcnn_event loss=focal cluster=True obs_window=1
-tag=models_ablation__parametric_gtcnn_event__focal__clustered__ow4 model=parametric_gtcnn_event loss=focal cluster=True obs_window=4
-tag=models_ablation__parametric_gtcnn_event__focal__clustered__ow6 model=parametric_gtcnn_event loss=focal cluster=True obs_window=6
+tag=tuning_obs_window_ow1__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True obs_window=1
+tag=tuning_obs_window_ow4__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True obs_window=4
+tag=tuning_obs_window_ow6__parametric_gtcnn_event__focal__clustered model=parametric_gtcnn_event loss=focal cluster=True obs_window=6
 EOF
 
 run_group() {
