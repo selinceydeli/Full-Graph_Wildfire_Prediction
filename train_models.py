@@ -340,7 +340,12 @@ if __name__ == "__main__":
     train_val_test_split = args.train_val_test_split
     threshold_tp = args.threshold_tp
     clustering = args.clustering
-    
+
+    print("obs_window:",obs_window)
+    print("batch_size:", batch_size)
+    print("model:", selected_model)
+    print("loss:", selected_loss_function)
+
     seed = 42 
     random.seed(seed)
     np.random.seed(seed)
