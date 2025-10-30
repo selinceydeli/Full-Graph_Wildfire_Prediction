@@ -1,1 +1,0 @@
-{"tag":"models_ablation__parametric_gtcnn_event__focal__clustered__ow1","model":"parametric_gtcnn_event","loss":"focal","clustering":"True","obs_window":1,"runs":1,"epochs":30,"batch_size":16,"started_at":"20251029_145701"}
