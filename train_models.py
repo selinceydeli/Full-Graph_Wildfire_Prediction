@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import scipy.sparse as sp
 import argparse
+import random
 from typing import List
 from model.parametric_gtcnn_event import ParametricGTCNN_Event
 from model.parametric_gtcnn import ParametricGTCNN
@@ -32,7 +33,7 @@ def parse_args():
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--selected_loss_function', choices=["bce", "weighted_bce", "focal", "dice"], type=str,
-                        default="bce")
+                        default="weighted_bce")
     parser.add_argument('--selected_model', type=str,
                         choices=["parametric_gtcnn", "vanilla_gcnn", "parametric_gtcnn_event", "simple_gc"],
                         default="simple_gc")
@@ -48,7 +49,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
          selected_model: str, train_val_test_split: List[int], threshold_tp: float, clustering: bool):
     # Load the days
     days = np.load(days_data_path)
-
+    
     # Load the dataset 
     timeseries_features = np.load(file=timeseries_data_path)  # shape: (N_stations, T_timestamps, F_features)
     timeseries_labels = np.load(file=labels_path)  # shape: (N_stations, T_timestamps)
@@ -181,6 +182,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
             in_channels=in_channels,
             out_channels=1,
         ).to(device)
+
     # elif SELECTED_MODEL == "disjoint_st_baseline":
     #     model = DisjointSTModel(
     #         S_spatial=A,
@@ -209,7 +211,6 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
         trn_X = trn_X.permute(0, 3, 1, 2)
         val_X = val_X.permute(0, 3, 1, 2)
         tst_X = tst_X.permute(0, 3, 1, 2)
-
     # elif SELECTED_MODEL in ["disjoint_st_baseline"]:
     #     # [B,N,T,F] -> [B,F,N,T] -> [B,F,N*T]
     #     trn_X = trn_X.permute(0, 3, 1, 2).flatten(2, 3)
@@ -230,10 +231,11 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
             pos = trn_y.sum().item()
             total = trn_y.numel()
             neg = total - pos
+        max_cap = 50
         if pos <= 0:
             pos_weight_value = 1.0
         else:
-            pos_weight_value = neg / pos
+            pos_weight_value = min(max_cap, neg / pos)
         pos_weight = torch.tensor(pos_weight_value, dtype=torch.float32, device=device)
         pos_percentage = 100 * (pos / total)
         print(f"[Imbalance] percentage of train positives={pos_percentage:.2f}%, pos_weight={pos_weight_value:.2f}")
@@ -293,7 +295,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
             optimizer=optimizer, scheduler=scheduler,
             val_metric_criterion=BinaryF1Score(threshold=threshold_tp),
             log_dir=f"./runs/{selected_model}",
-            not_learning_limit=15,
+            not_learning_limit=not_learning_limit,
             gamma=gamma,
             trn_event_times=trn_evt,  # pass event times (numpy) to train
             val_event_times=val_evt  # pass event times (numpy) to val
@@ -306,7 +308,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
-                title=f"{selected_model} — train/val loss", model_name=selected_model, save_path=None)
+                title=f"{selected_model} — {selected_loss_function} - train/val loss", model_name=selected_model, loss_name=selected_loss_function, save_path=None)
 
     # Evaluate the best model on the test set
     metrics = evaluate_model(
@@ -338,5 +340,18 @@ if __name__ == "__main__":
     train_val_test_split = args.train_val_test_split
     threshold_tp = args.threshold_tp
     clustering = args.clustering
+
+    print("obs_window:",obs_window)
+    print("batch_size:", batch_size)
+    print("model:", selected_model)
+    print("loss:", selected_loss_function)
+
+    seed = 42 
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
     main(days_data_path, timeseries_data_path, labels_path, distance_matrix_filepath, pred_horizon, obs_window, k,
          num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split, threshold_tp, clustering)

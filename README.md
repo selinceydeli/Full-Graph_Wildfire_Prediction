@@ -55,22 +55,22 @@ Extends the Parametric GTCNN to focus learning around event times.
 
 ### 3.2 CLI arguments
 
-| Flag                       | Type     | Default                  | Choices/Format                                         | Description                                                                   |
-| -------------------------- | -------- | ------------------------ | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| --days_data_path           | str      | data/days.npy            | path                                                   | Path to the timeline array used to derive event windows                       |
-| --timeseries_data_path     | str      | data/timeseries_data.npy | path                                                   | Path to the feature tensor shaped (N, T, F)                                   |
-| --labels_path              | str      | data/labels.npy          | path                                                   | Path to the label tensor shaped (N, T) with 0/1 labels                        |
-| --distance_matrix_filepath | str      | data/distance_matrix.npy | path                                                   | Path to pairwise distances shaped (N, N) used to build the kNN graph          |
-| --pred_horizon             | int      | 1                        | positive integer                                       | How many steps ahead to predict                                               |
-| --obs_window               | int      | 4                        | positive integer                                       | Temporal window size used by the models                                       |
-| --k                        | int      | 4                        | positive integer                                       | Number of neighbors kept when building the kNN graph                          |
-| --num_epochs               | int      | 50                       | positive integer                                       | Training epochs                                                               |
-| --batch_size               | int      | 16                       | positive integer                                       | Minibatch size for training and validation                                    |
-| --selected_loss_function   | str      | bce                      | bce, weighted_bce, focal, dice                         | Training loss; weighted_bce auto-computes pos_weight from train labels        |
-| --selected_model           | str      | vanilla_gcnn             | vanilla_gcnn, parametric_gtcnn, parametric_gtcnn_event | Model to train                                                                |
-| --train_val_test_split     | 3 floats | 0.6 0.2 0.2              | three numbers summing to 1                             | Fractions for train, validation, test in time order                           |
-| --threshold_tp             | float    | 0.5                      | 0.0–1.0                                                | Threshold used by the F1 metric (does not affect the loss)                    |
-| --clustering               | bool     | False                    | True or False                                          | Train cluster by cluster; only for parametric_gtcnn or parametric_gtcnn_event |
+| Flag                       | Type     | Default                  | Choices/Format                                                    | Description                                                                   |
+| -------------------------- | -------- | ------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| --days_data_path           | str      | data/days.npy            | path                                                              | Path to the timeline array used to derive event windows                       |
+| --timeseries_data_path     | str      | data/timeseries_data.npy | path                                                              | Path to the feature tensor shaped (N, T, F)                                   |
+| --labels_path              | str      | data/labels.npy          | path                                                              | Path to the label tensor shaped (N, T) with 0/1 labels                        |
+| --distance_matrix_filepath | str      | data/distance_matrix.npy | path                                                              | Path to pairwise distances shaped (N, N) used to build the kNN graph          |
+| --pred_horizon             | int      | 1                        | positive integer                                                  | How many steps ahead to predict                                               |
+| --obs_window               | int      | 4                        | positive integer                                                  | Temporal window size used by the models                                       |
+| --k                        | int      | 4                        | positive integer                                                  | Number of neighbors kept when building the kNN graph                          |
+| --num_epochs               | int      | 50                       | positive integer                                                  | Training epochs                                                               |
+| --batch_size               | int      | 16                       | positive integer                                                  | Minibatch size for training and validation                                    |
+| --selected_loss_function   | str      | bce                      | bce, weighted_bce, focal, dice                                    | Training loss; weighted_bce auto-computes pos_weight from train labels        |
+| --selected_model           | str      | vanilla_gcnn             | vanilla_gcnn, parametric_gtcnn, parametric_gtcnn_event, simple_gc | Model to train                                                                |
+| --train_val_test_split     | 3 floats | 0.6 0.2 0.2              | three numbers summing to 1                                        | Fractions for train, validation, test in time order                           |
+| --threshold_tp             | float    | 0.5                      | 0.0–1.0                                                           | Threshold used by the F1 metric (does not affect the loss)                    |
+| --clustering               | bool     | False                    | True or False                                                     | Train cluster by cluster; only for parametric_gtcnn or parametric_gtcnn_event |
 
 ### 3.3 Train the Selected Model
 
@@ -81,7 +81,7 @@ Here are some example commands to train the selected model:
 ```bash
 python3 train_models.py \
   --selected_model vanilla_gcnn \
-  --selected_loss_function bce \
+  --selected_loss_function dice \
   --obs_window 4 \
   --pred_horizon 1 \
   --k 4 \
@@ -105,9 +105,50 @@ python3 train_models.py \
 ```bash
 python3 train_models.py \
   --selected_model parametric_gtcnn_event \
-  --clustering True \
   --selected_loss_function focal \
   --num_epochs 10 \
   --batch_size 16 \
   --clustering True
+```
+
+## 4) Run Experiments (Ablations)
+
+This repo includes a bash script to automate ablation studies and aggregate results across repeated runs.
+
+### 4.1 Setup
+
+1. Save the script as `run_experiments.sh` in the project root and make it executable:
+
+```bash
+chmod +x run_experiments.sh
+```
+
+2. The script is compatible with macOS’s default Bash 3.2. No extra shell setup needed.
+
+### 4.2 Run hyperparameter tuning
+
+Run tuning for **observation window** parameter:
+
+```bash
+./run_experiments.sh obs_window
+```
+
+### 4.3 Run the experiments
+
+Run **models** ablation:
+
+```bash
+./run_experiments.sh models
+```
+
+Run **losses** ablation:
+
+```bash
+./run_experiments.sh losses
+```
+
+Run **both**:
+
+```bash
+./run_experiments.sh all
 ```

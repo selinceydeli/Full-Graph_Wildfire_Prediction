@@ -1,0 +1,9 @@
+Experiment: models_ablation__simple_gc__dice__fullbatch
+Model: simple_gc
+Loss: dice
+Clustering: 
+Obs window: 4
+Runs: 1
+Epochs: 50
+Batch size: 16
+Started at: 20251030_145345

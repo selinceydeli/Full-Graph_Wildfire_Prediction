@@ -1,0 +1,1 @@
+{"tag":"losses_ablation__parametric_gtcnn_event__bce__clustered","model":"parametric_gtcnn_event","loss":"bce","clustering":"True","obs_window":6,"runs":1,"epochs":50,"batch_size":16,"started_at":"20251030_001931"}

@@ -236,7 +236,7 @@ def knn_graph(D, k):
 
 
 # --- Helper method for plotting train and val losses ---
-def plot_losses(trn_losses, val_losses, best_epoch=None, loss_name="BCE",title="GTCNN training", model_name = "parametric_GTCNN", save_path=None):
+def plot_losses(trn_losses, val_losses, best_epoch=None, loss_name="BCE", title="GTCNN training", model_name = "parametric_GTCNN", save_path=None):
     trn_losses = np.asarray(trn_losses, dtype=float)
     val_losses = np.asarray(val_losses, dtype=float)
     epochs = np.arange(1, len(trn_losses) + 1)
@@ -257,7 +257,7 @@ def plot_losses(trn_losses, val_losses, best_epoch=None, loss_name="BCE",title="
     if save_path is None:
         os.makedirs("plots", exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = os.path.join("plots", f"{model_name}_loss_curve_{timestamp}.png")
+        save_path = os.path.join("plots", f"{model_name}_{loss_name}_loss_curve_{timestamp}.png")
 
     plt.savefig(save_path, dpi=200, bbox_inches="tight")
     plt.close()
