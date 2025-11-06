@@ -1,3 +1,6 @@
+import os
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import torch
 import numpy as np
@@ -33,7 +36,7 @@ def parse_args():
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--selected_loss_function', choices=["bce", "weighted_bce", "focal", "dice"], type=str,
-                        default="weighted_bce")
+                        default="dice")
     parser.add_argument('--selected_model', type=str,
                         choices=["parametric_gtcnn", "vanilla_gcnn", "parametric_gtcnn_event", "simple_gc"],
                         default="simple_gc")
@@ -49,7 +52,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
          selected_model: str, train_val_test_split: List[int], threshold_tp: float, clustering: bool):
     # Load the days
     days = np.load(days_data_path)
-    
+
     # Load the dataset 
     timeseries_features = np.load(file=timeseries_data_path)  # shape: (N_stations, T_timestamps, F_features)
     timeseries_labels = np.load(file=labels_path)  # shape: (N_stations, T_timestamps)
@@ -122,8 +125,8 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
     assert A_sym_diff.nnz == 0 or float(A_sym_diff.power(2).sum()) < 1e-12
     assert A.diagonal().sum() == 0
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     # Prepare the data for training
     trn_X = torch.tensor(dataset['trn']['data'], dtype=torch.float32)  # [B,N,T,F]
     val_X = torch.tensor(dataset['val']['data'], dtype=torch.float32)
@@ -179,6 +182,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
     elif selected_model == "simple_gc":
         in_channels = n_features * obs_window
         model = SimpleGraphConvolution(
+            S_spatial=A,
             in_channels=in_channels,
             out_channels=1,
         ).to(device)
@@ -222,7 +226,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     not_learning_limit = 15
-    num_clusters = 50  # only used if CLUSTERING=True
+    num_clusters = 10  # only used if CLUSTERING=True
 
     if selected_loss_function == "bce":
         loss_criterion = torch.nn.BCEWithLogitsLoss()
@@ -308,7 +312,8 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
-                title=f"{selected_model} — {selected_loss_function} - train/val loss", model_name=selected_model, loss_name=selected_loss_function, save_path=None)
+                title=f"{selected_model} — {selected_loss_function} - train/val loss", model_name=selected_model,
+                loss_name=selected_loss_function, save_path=None)
 
     # Evaluate the best model on the test set
     metrics = evaluate_model(
@@ -340,13 +345,13 @@ if __name__ == "__main__":
     train_val_test_split = args.train_val_test_split
     threshold_tp = args.threshold_tp
     clustering = args.clustering
-    
-    seed = 42 
+
+    seed = 42
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    
+
     main(days_data_path, timeseries_data_path, labels_path, distance_matrix_filepath, pred_horizon, obs_window, k,
          num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split, threshold_tp, clustering)
