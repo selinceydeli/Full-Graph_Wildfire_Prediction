@@ -35,7 +35,7 @@ def temporal_kernel_adjacency(event_times,
         for i in range(i_start, j):
             w = k(t[j] - t[i])
             if w > 0:
-                rows.append(j)   # past -> future
+                rows.append(j)  # past -> future
                 cols.append(i)
                 data.append(w)
 
@@ -53,16 +53,17 @@ class ParametricGTCNN_Event(nn.Module):
       - obs_window (T) is fixed for the dataset; event times vary per window.
       - We rebuild the temporal blocks (K10, K11) per sample in forward().
     """
+
     def __init__(self,
                  S_spatial: sp.spmatrix,  # (N x N) 
-                 obs_window: int,         # fixed window length T
+                 obs_window: int,  # fixed window length T
                  F_in: int = 1,
                  hidden_dims=(64, 64),
                  K: int = 2,
-                 pool: str = "mean",      # "mean" or "last"
+                 pool: str = "mean",  # "mean" or "last"
                  init_s=(0.0, 1.0, 1.0, 0.0),
                  kernel: str = "exp",
-                 tau: float = 3.0,        # in days
+                 tau: float = 3.0,  # in days
                  max_back_hops: int = 3,
                  device: str | torch.device = "cpu"):
         super().__init__()
@@ -86,7 +87,7 @@ class ParametricGTCNN_Event(nn.Module):
         I_N = sp.eye(N, format='csr')
 
         K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr')).coalesce()
-        K01 = scipy_to_torch_sparse(sp.kron(I_T, S,    format='csr')).coalesce()
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S, format='csr')).coalesce()
 
         self.register_buffer("K00", K00)
         self.register_buffer("K01", K01)
@@ -107,7 +108,7 @@ class ParametricGTCNN_Event(nn.Module):
 
         # GNN stack
         dims = [self.F_in, *hidden_dims]
-        self.layers = nn.ModuleList([PowerGConvDyn(dims[i], dims[i+1], K=K) for i in range(len(dims)-1)])
+        self.layers = nn.ModuleList([PowerGConvDyn(dims[i], dims[i + 1], K=K) for i in range(len(dims) - 1)])
         self.act = nn.ReLU()
         self.dropout = nn.Dropout(p=0.1)
         self.head = nn.Linear(dims[-1], 1)
@@ -128,7 +129,7 @@ class ParametricGTCNN_Event(nn.Module):
         I_N = sp.eye(N, format='csr')
         S_spatial_csr = S_spatial
 
-        K10 = scipy_to_torch_sparse(sp.kron(S_T_evt, I_N,               format='csr')).coalesce().to(self.device)
+        K10 = scipy_to_torch_sparse(sp.kron(S_T_evt, I_N, format='csr')).coalesce().to(self.device)
         K11 = scipy_to_torch_sparse(sp.kron(S_T_evt, S_spatial_csr, format='csr')).coalesce().to(self.device)
         return K10, K11
 
@@ -144,7 +145,7 @@ class ParametricGTCNN_Event(nn.Module):
         et = et - et[0]
         key = tuple(np.round(et, 6))  # 1e-6 days ≈ 0.0864 seconds
         # K10, K11 = self._cached_temporal_blocks(key, N=N, S_spatial=S_spatial)
-        et = np.array(key, dtype=float) 
+        et = np.array(key, dtype=float)
         K10, K11 = self._build_temporal_blocks(et, N=N, S_spatial=S_spatial)
         self.K10 = K10
         self.K11 = K11
@@ -156,6 +157,7 @@ class ParametricGTCNN_Event(nn.Module):
         input: adj_matrix (spatial graph)
         output: A (product graph)
         """
+        device = self.s_00.device
         # Spatial graph 
         S = to_csr(adj_matrix)
         N = int(S.shape[0])
@@ -164,8 +166,8 @@ class ParametricGTCNN_Event(nn.Module):
         I_T = sp.eye(self.T, format='csr')
         I_N = sp.eye(N, format='csr')
 
-        K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr')).coalesce()
-        K01 = scipy_to_torch_sparse(sp.kron(I_T, S,    format='csr')).coalesce()
+        K00 = scipy_to_torch_sparse(sp.kron(I_T, I_N, format='csr')).coalesce().to(device)
+        K01 = scipy_to_torch_sparse(sp.kron(I_T, S, format='csr')).coalesce().to(device)
 
         # Placeholders for temporal blocks; they will be updated per sample
         # Initialize with a trivial evenly spaced window just so buffers exist
@@ -181,7 +183,7 @@ class ParametricGTCNN_Event(nn.Module):
         # Row-normalization suits directed time edges
         A = (s00 * K00) + (s01 * K01) + (s10 * K10) + (s11 * K11)
         return torch_sparse_row_norm(A)
-    
+
     def _reshape_to_product_nodes(self, x: torch.Tensor, N: int) -> torch.Tensor:
         """
         Accept [B,F,N,T] or [B,F,N*T]; return [B, T*N, F]
@@ -220,16 +222,16 @@ class ParametricGTCNN_Event(nn.Module):
         for b in range(B):
             if event_times_batch is not None:
                 self._set_event_times_for_sample(event_times_batch[b], N=N, S_spatial=adj_matrix)
-            
+
             H = X_prod[b]
             for layer in self.layers:
                 H = layer(H, A_hat)
                 H = self.act(H)
                 H = self.dropout(H)
 
-            H = H.view(self.T, N, -1) # [T, N, C]
+            H = H.view(self.T, N, -1)  # [T, N, C]
             H_pool = H.mean(dim=0) if self.pool == "mean" else H[-1]
-            y_hat = self.head(H_pool).squeeze(-1) # [N]
+            y_hat = self.head(H_pool).squeeze(-1)  # [N]
             outs.append(y_hat)
 
-        return torch.stack(outs, dim=0) # [B, N]
+        return torch.stack(outs, dim=0)  # [B, N]

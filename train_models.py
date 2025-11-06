@@ -1,3 +1,6 @@
+import os
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import torch
 import numpy as np
@@ -179,6 +182,7 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
     elif selected_model == "simple_gc":
         in_channels = n_features * obs_window
         model = SimpleGraphConvolution(
+            S_spatial=A,
             in_channels=in_channels,
             out_channels=1,
         ).to(device)
@@ -308,7 +312,8 @@ def main(days_data_path: str, timeseries_data_path: str, labels_path: str, dista
 
     # Plot train and val loss per epoch
     plot_losses(trn_loss_per_epoch, val_loss_per_epoch, best_epoch=epoch_best,
-                title=f"{selected_model} — {selected_loss_function} - train/val loss", model_name=selected_model, loss_name=selected_loss_function, save_path=None)
+                title=f"{selected_model} — {selected_loss_function} - train/val loss", model_name=selected_model,
+                loss_name=selected_loss_function, save_path=None)
 
     # Evaluate the best model on the test set
     metrics = evaluate_model(
@@ -340,7 +345,6 @@ if __name__ == "__main__":
     train_val_test_split = args.train_val_test_split
     threshold_tp = args.threshold_tp
     clustering = args.clustering
-
     print("obs_window:",obs_window)
     print("batch_size:", batch_size)
     print("model:", selected_model)
@@ -352,6 +356,6 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    
+
     main(days_data_path, timeseries_data_path, labels_path, distance_matrix_filepath, pred_horizon, obs_window, k,
          num_epochs, batch_size, selected_loss_function, selected_model, train_val_test_split, threshold_tp, clustering)
