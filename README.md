@@ -81,7 +81,7 @@ Here are some example commands to train the selected model:
 ```bash
 python3 train_models.py \
   --selected_model vanilla_gcnn \
-  --selected_loss_function dice \
+  --selected_loss_function focal \
   --obs_window 4 \
   --pred_horizon 1 \
   --k 4 \
@@ -100,12 +100,12 @@ python3 train_models.py \
   --clustering True
 ```
 
-#### 3) Event-based GTCNN with Focal Loss and mini-batch training
+#### 3) Event-based GTCNN with Dice Loss and mini-batch training
 
 ```bash
 python3 train_models.py \
   --selected_model parametric_gtcnn_event \
-  --selected_loss_function focal \
+  --selected_loss_function dice \
   --num_epochs 10 \
   --batch_size 16 \
   --clustering True

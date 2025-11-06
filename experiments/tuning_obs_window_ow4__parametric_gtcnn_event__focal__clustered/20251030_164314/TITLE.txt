@@ -1,0 +1,9 @@
+Experiment: tuning_obs_window_ow4__parametric_gtcnn_event__focal__clustered
+Model: parametric_gtcnn_event
+Loss: focal
+Clustering: True
+Obs window: 4
+Runs: 1
+Epochs: 30
+Batch size: 16
+Started at: 20251030_164314

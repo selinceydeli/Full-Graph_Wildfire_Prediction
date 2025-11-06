@@ -1,0 +1,1 @@
+{"tag":"models_ablation__simple_gc__dice__fullbatch","model":"simple_gc","loss":"dice","clustering":"","obs_window":4,"runs":1,"epochs":50,"batch_size":16,"started_at":"20251030_145345"}
